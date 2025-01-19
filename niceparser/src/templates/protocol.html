@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>Hello, world!</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="description" content="" />
+    <link rel="icon" href="favicon.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Recursive:wght@300..1000&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ css_url }}">
+</head>
+<body>
+    <div id="top" role="document">
+    <div class="page">
+
+    <header class="page__header">
+        <div class="container section">
+            <h1>MY HASH IS NICE</h1>
+            <p><b>Make your Bitcoin transactions nicer and earn MHIN.</b></p>
+        </div>
+    </header>
+
+    <main class="page__content">
+        <section id="text" class="container">
+            <h2 class="subtitle1">Motivations</h2>
+            <ul>
+                <li>Have fun.</li>
+                <li>Make the UTXO set prettier and more compressible.</li>
+                <li>Give anyone the opportunity to mine tokens within their means.</li>
+                <li>If the project is successful, allow the transaction fees to be paid with the MHINs earned.</li>
+            </ul>
+        </section>
+        <section id="text" class="container">
+            <h2 class="subtitle2">MHIN mining</h2>
+            <p>
+                To mine MHIN you must broadcast a Bitcoin transaction whose txid starts with at least 6 zeros.
+                The MHIN reward amount is calculated as follows:
+            </p>
+            <ul>
+                <li>In a given block, transactions starting with the most zeros earn 4096 MHIN</li>
+                <li>Transactions with one zero less than the best transactions earn 4096/16 or 256 MHIN</li>
+                <li>Transactions with two fewer zeros earn 4096 / 16 /16 or 16 MHIN</li>
+                <li>etc.</li>
+            </ul>
+            <p>The formula used is therefore as follows:</p>
+            <code>
+                reward = 4096 / 16 ^ (max_zero_count - zero_count)
+            </code>
+            <p>
+                With `max_zero_count` equal to the number of zeros which start the best transaction 
+                and `zero_count` the number of zeros which start the transaction for which we calculate the reward.
+            </p>
+        </section>
+        <section id="text" class="container">
+            <h2 class="subtitle2">MHIN distribution</h2>
+            <p>
+                MHINs earned with a transaction starting with 6 or more zeros are distributed to UTXOs.
+                The distribution is carried out as follows:
+            </p>
+            <ul>
+                <li>If there is a single non-OP_RETURN UTXO it receives the entire reward.</li>
+                <li>If there are two or more non-OP_RETURN UTXOs, the reward is distributed to all UTXOs, except the last one, in proportion to the value of each UTXO</li>
+                <li>The calculations being made only with integers, the possible remainder of the division is distributed to the first non-OP_RETURN UTXO.</li>
+            </ul>
+            <p>
+                For example, if a transaction earning 256 MHIN contains 4 outputs with 500, 500, 500 and 2000 Satoshis respectively, the first output receives 86 MHIN of the reward, the second and third 85 MHIN.
+            </p>
+        </section>
+        <section id="text" class="container">
+            <h2 class="subtitle2">Moving MHIN</h2>
+            <p>
+                When UTXOs with attached MHINs are spent, the MHINs are distributed to the new UTXOs in the transaction.
+                Distribution is done in exactly the same way as rewards.
+            </p>
+        </section>
+    </main>
+
+    </div>  <!-- page -->
+    </div>  <!-- top -->
+</body>
+</html>
