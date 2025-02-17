@@ -1,19 +1,31 @@
 use bitcoin::{
-    absolute::LockTime, 
     blockdata::transaction::{Transaction, Version},
-    key::Keypair, key::Secp256k1, script::PushBytesBuf, sighash::SighashCache, Amount,
-    EcdsaSighashType, OutPoint, ScriptBuf, Sequence, TxIn, TxOut, Witness,
+    sighash::SighashCache,
+    Amount,
+    EcdsaSighashType,
+    OutPoint,
+    ScriptBuf,
+    Sequence,
+    TxIn,
+    TxOut,
+    Witness,
+    Network,
+    Address,
     consensus::serialize,
+    key::CompressedPublicKey,
 };
 
+use hdwallet::{KeyChain, DefaultKeyChain, ExtendedPrivKey, ChainPath};
+use bip39::Mnemonic;
+use secp256k1::{Message, Secp256k1};  // Ajout de Secp256k1 ici
 use hex;
-use secp256k1::Message;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread;
+use std::fs;
+use std::io::Write;
 use std::time::Instant;
-
 use pyo3::prelude::*;
+use zerocopy::AsBytes;
 
 #[derive(Clone)]
 struct Input {
@@ -21,6 +33,7 @@ struct Input {
     vout: u32,
     value: u64,
     script_pubkey: String,
+    derivation_path: String,
 }
 
 #[derive(Clone)]
@@ -29,183 +42,89 @@ struct Output {
     script_pubkey: String,
 }
 
-pub fn create_op_return_script(message: &str) -> ScriptBuf {
-    // Create a new PushBytesBuf and extend it with our data
-    let mut push_bytes = PushBytesBuf::new();
-    push_bytes
-        .extend_from_slice(message.as_bytes())
-        .expect("Message too long for push bytes");
-
-    // Create a new OP_RETURN script with the push bytes
-    ScriptBuf::new_op_return(&push_bytes)
+struct CachedKeys {
+    secp: Secp256k1<secp256k1::All>,
+    keychain: DefaultKeyChain,
 }
 
-fn build_unsigned_transaction(inputs: Vec<Input>, outputs: Vec<Output>, data: &str) -> Transaction {
-    let mut unsigned_tx = Transaction {
-        version: Version::TWO,
-        lock_time: LockTime::ZERO,
-        input: vec![],
-        output: vec![],
-    };
-
-    for input in inputs {
-        unsigned_tx.input.push(TxIn {
-            previous_output: OutPoint {
-                txid: input.txid.parse().unwrap(),
-                vout: input.vout,
-            },
-            script_sig: ScriptBuf::default(),
-            sequence: Sequence::ZERO,
-            witness: Witness::default(),
-        });
-    }
-
-    for output in outputs {
-        unsigned_tx.output.push(TxOut {
-            value: Amount::from_sat(output.value),
-            script_pubkey: ScriptBuf::from(hex::decode(output.script_pubkey).unwrap()),
-        });
-    }
-
-    unsigned_tx.output.push(TxOut {
-        value: Amount::from_sat(0),
-        script_pubkey: create_op_return_script(data),
-    });
-
-    unsigned_tx
-}
-
-fn sign_transaction(
-    unsigned_tx: &mut Transaction,
-    inputs: Vec<Input>,
-    private_key: &str,
-) -> Transaction {
-    let secp = Secp256k1::new();
-    let keypair = Keypair::from_seckey_str(&secp, private_key).expect("failed to create keypair");
-    let secret_key = keypair.secret_key();
-
-    let mut sighasher = SighashCache::new(unsigned_tx);
-
-    for (input_index, input) in inputs.iter().enumerate() {
-        let input_script_pubkey =
-            ScriptBuf::from(hex::decode(input.script_pubkey.clone()).unwrap());
-        let sighash = sighasher
-            .p2wpkh_signature_hash(
-                input_index,
-                &input_script_pubkey,
-                Amount::from_sat(input.value),
-                EcdsaSighashType::All,
-            )
-            .expect("failed to create sighash");
-        let msg = Message::from(sighash);
-        let signature = secp.sign_ecdsa(&msg, &secret_key);
-
-        let signature = bitcoin::ecdsa::Signature {
-            signature,
-            sighash_type: EcdsaSighashType::All,
-        };
-        let public_key = secret_key.public_key(&secp);
-        *sighasher.witness_mut(input_index).unwrap() = Witness::p2wpkh(&signature, &public_key);
-    }
-    let signed_tx = sighasher.into_transaction();
-
-    signed_tx.clone()
-}
-
-
-fn build_signed_transaction(
-    inputs: Vec<Input>,
-    outputs: Vec<Output>,
-    data: &str,
-    private_key: &str,
-) -> Transaction {
-    let mut unsigned_tx = build_unsigned_transaction(inputs.clone(), outputs, data);
-    sign_transaction(&mut unsigned_tx, inputs, private_key)
-}
-
-fn build_nice_signed_transaction(
-    inputs: Vec<Input>,
-    outputs: Vec<Output>,
-    private_key: &str,
-    start: u64,
-    target: usize,
-    increment: usize,
-    stop_signal: &Arc<AtomicBool>,
-) -> Transaction {
-    let prefix = "myhashisnice.com";
-    let mut data = prefix.to_string();
-    let mut count = start;
-    let start_time = Instant::now();
-
-    loop {
-        if stop_signal.load(Ordering::SeqCst) {
-            break;
-        }
-
-        let signed_tx =
-            build_signed_transaction(inputs.clone(), outputs.clone(), &data, private_key);
-        let txid = signed_tx.compute_txid();
-
-        if txid.to_string().starts_with(&"0".repeat(target)) {
-            let elapsed_time = start_time.elapsed();
-            println!("Elapsed time: {:?}", elapsed_time);
-            println!("Data: {}", data);
-            return signed_tx;
-        }
-
-        data = format!("{} {}", prefix, count);
-        count += increment as u64;
-    }
-
-    Transaction {
-        version: Version::TWO,
-        lock_time: LockTime::ZERO,
-        input: vec![],
-        output: vec![],
-    }
+fn save_derivation_path(txid: &str, path: &str) -> std::io::Result<()> {
+    let home = dirs::home_dir().expect("Could not find home directory");
+    let mut dir_path = home;
+    dir_path.push(".nicesigner");
+    
+    fs::create_dir_all(&dir_path)?;
+    let mut file_path = dir_path;
+    file_path.push(txid);
+    fs::write(file_path, path)?;
+    
+    Ok(())
 }
 
 fn build_signed_transactions_parallel(
     inputs: Vec<Input>,
     outputs: Vec<Output>,
-    private_key: &str,
-    first_thread: usize,
-    num_threads: usize,
-    total_threads: usize,
+    mnemonic: &str,
+    base_path: &str,
+    first_thread: u32,
+    num_threads: u32,
+    total_threads: u32,
     target: usize,
-) -> Transaction {
-    let found_tx = Arc::new(Mutex::new(None));
+    min_value: u64,
+) -> (Transaction, String) {
+    let found_result = Arc::new(Mutex::new(None));
     let stop_signal = Arc::new(AtomicBool::new(false));
+    let total_signatures = Arc::new(AtomicUsize::new(0));
+    let start_time = Instant::now();
     let mut handles = vec![];
 
-    let increment = total_threads;
-    for start in first_thread..=num_threads {
-        if stop_signal.load(Ordering::SeqCst) {
-            break;
-        }
+    let mnemonic = Arc::new(Mnemonic::parse_normalized(mnemonic).unwrap());
+    let seed = mnemonic.to_seed("");
+    let master = ExtendedPrivKey::with_seed(seed.as_bytes()).unwrap();
+    
+    let cached_keys = CachedKeys {
+        secp: Secp256k1::new(),
+        keychain: DefaultKeyChain::new(master),
+    };
 
+    for start in first_thread..num_threads {
         let inputs_clone = inputs.clone();
         let outputs_clone = outputs.clone();
-        let private_key_clone = private_key.to_string();
-        let found_tx_clone = Arc::clone(&found_tx);
-        let stop_signal_clone = Arc::clone(&stop_signal);
+        let base_path = base_path.to_string();
+        let found_result = Arc::clone(&found_result);
+        let stop_signal = Arc::clone(&stop_signal);
+        let total_signatures = Arc::clone(&total_signatures);
+        let start_time = start_time;
+        let mnemonic_clone = Arc::clone(&mnemonic);
 
-        let handle = thread::spawn(move || {
-            let signed_tx = build_nice_signed_transaction(
-                inputs_clone,
-                outputs_clone,
-                &private_key_clone,
-                start as u64,
+        let handle = std::thread::spawn(move || {
+            let seed = mnemonic_clone.to_seed("");
+            let master = ExtendedPrivKey::with_seed(seed.as_bytes()).unwrap();
+            
+            let cached_keys = CachedKeys {
+                secp: Secp256k1::new(),
+                keychain: DefaultKeyChain::new(master),
+            };
+
+            if stop_signal.load(Ordering::Relaxed) {
+                return;
+            }
+
+            if let Some((signed_tx, path)) = build_nice_signed_transaction(
+                &inputs_clone,
+                &outputs_clone,
+                &cached_keys,
+                &base_path,
+                start,
                 target,
-                increment,
-                &stop_signal_clone,
-            );
-            let txid = signed_tx.compute_txid();
-
-            if txid.to_string().starts_with(&"0".repeat(target)) {
-                let mut found = found_tx_clone.lock().unwrap();
-                *found = Some(signed_tx);
-                stop_signal_clone.store(true, Ordering::SeqCst);
+                total_threads,
+                min_value,
+                &stop_signal,
+                &total_signatures,
+                &start_time,
+            ) {
+                let mut found = found_result.lock().unwrap();
+                *found = Some((signed_tx, path));
+                stop_signal.store(true, Ordering::Relaxed);
             }
         });
 
@@ -216,21 +135,164 @@ fn build_signed_transactions_parallel(
         handle.join().unwrap();
     }
 
-    let found = found_tx.lock().unwrap();
-    found.clone().expect("No transaction found")
+    let found = found_result.lock().unwrap();
+    match &*found {
+        Some(result) => result.clone(),
+        None => panic!("Opération interrompue par l'utilisateur")
+    }
 }
 
+fn build_nice_signed_transaction(
+    inputs: &[Input],
+    outputs: &[Output],
+    cached_keys: &CachedKeys,
+    base_path: &str,
+    start_index: u32,
+    target: usize,
+    increment: u32,
+    min_value: u64,
+    stop_signal: &Arc<AtomicBool>,
+    total_signatures: &Arc<AtomicUsize>,
+    start_time: &Instant,
+) -> Option<(Transaction, String)> {
+    println!("Starting thread with start index {} and increment {}", start_index, increment);
+    let target_prefix = "0".repeat(target);
+    let mut current_index = start_index;
+    let mut signatures_count = 0u64;
+    
+    let mut tx_template = Transaction {
+        version: Version::TWO,
+        lock_time: bitcoin::absolute::LockTime::ZERO,
+        input: Vec::with_capacity(inputs.len()),
+        output: Vec::with_capacity(outputs.len() + 1),
+    };
+
+    for input in inputs {
+        tx_template.input.push(TxIn {
+            previous_output: OutPoint {
+                txid: input.txid.parse().unwrap(),
+                vout: input.vout,
+            },
+            script_sig: ScriptBuf::default(),
+            sequence: Sequence::ZERO,
+            witness: Witness::default(),
+        });
+    }
+
+    while !stop_signal.load(Ordering::Relaxed) {
+        let output_path = format!("{}/{}", base_path, current_index);
+        let chain_path = ChainPath::from(output_path.as_str());
+        
+        let (derived_key, _) = cached_keys.keychain.derive_private_key(chain_path).unwrap();
+        let secp_pubkey = secp256k1::PublicKey::from_secret_key(&cached_keys.secp, &secp256k1::SecretKey::from_slice(derived_key.private_key.as_ref()).unwrap());
+        let compressed_pubkey = CompressedPublicKey::from_slice(&secp_pubkey.serialize()).unwrap();
+        let address = Address::p2wpkh(&compressed_pubkey, Network::Bitcoin);
+
+        let mut unsigned_tx = tx_template.clone();
+        
+        unsigned_tx.output.push(TxOut {
+            value: Amount::from_sat(min_value),
+            script_pubkey: address.script_pubkey(),
+        });
+
+        for output in outputs {
+            unsigned_tx.output.push(TxOut {
+                value: Amount::from_sat(output.value),
+                script_pubkey: ScriptBuf::from(hex::decode(&output.script_pubkey).unwrap()),
+            });
+        }
+
+        let signed_tx = sign_transaction_optimized(
+            unsigned_tx,
+            inputs,
+            cached_keys,
+        );
+
+        let txid = signed_tx.compute_txid().to_string();
+        if txid.starts_with(&target_prefix) && txid.chars().nth(target_prefix.len()) != Some('0') {
+            if let Err(e) = save_derivation_path(&txid, &output_path) {
+                eprintln!("Failed to save derivation path: {}", e);
+            }
+            let total = total_signatures.load(Ordering::Relaxed);
+            println!("\nFound matching transaction! Total signatures done: {}", total);
+            return Some((signed_tx, output_path));
+        }
+
+        current_index += increment;
+        signatures_count += 1;
+        
+        if signatures_count % 10000 == 0 {
+            let new_total = total_signatures.fetch_add(10000, Ordering::Relaxed);
+            let elapsed = start_time.elapsed();
+            let speed = (new_total + 10000) as f64 / elapsed.as_secs_f64();
+            print!("\rTotal signatures: {} - Elapsed: {:.2}s - Speed: {:.0} sig/s     ", 
+                new_total + 10000,
+                elapsed.as_secs_f64(),
+                speed);
+            std::io::stdout().flush().unwrap();
+        }
+    }
+
+    None
+}
+
+fn sign_transaction_optimized(
+    mut unsigned_tx: Transaction,
+    inputs: &[Input],
+    cached_keys: &CachedKeys,
+) -> Transaction {
+    let mut sighashes = Vec::with_capacity(inputs.len());
+    {
+        let mut sighasher = SighashCache::new(&unsigned_tx);
+        for (input_index, input) in inputs.iter().enumerate() {
+            let input_script_pubkey = ScriptBuf::from(hex::decode(&input.script_pubkey).unwrap());
+            let sighash = sighasher
+                .p2wpkh_signature_hash(
+                    input_index,
+                    &input_script_pubkey,
+                    Amount::from_sat(input.value),
+                    EcdsaSighashType::All,
+                )
+                .expect("failed to create sighash");
+            sighashes.push(sighash);
+        }
+    }
+
+    for (input_index, (sighash, input)) in sighashes.into_iter().zip(inputs.iter()).enumerate() {
+        let chain_path = ChainPath::from(input.derivation_path.as_str());
+        let (derived_key, _) = cached_keys.keychain.derive_private_key(chain_path).unwrap();
+        let secp_secret_key = secp256k1::SecretKey::from_slice(derived_key.private_key.as_ref()).unwrap();
+        let secp_pubkey = secp256k1::PublicKey::from_secret_key(&cached_keys.secp, &secp_secret_key);
+
+        let msg = Message::from(sighash);
+        let signature = cached_keys.secp.sign_ecdsa(&msg, &secp_secret_key);
+
+        let signature = bitcoin::ecdsa::Signature {
+            signature,
+            sighash_type: EcdsaSighashType::All,
+        };
+        
+        unsigned_tx.input[input_index].witness = Witness::p2wpkh(&signature, &secp_pubkey);
+    }
+    
+    unsigned_tx
+}
 
 fn parse_inputs(inputs_set: &str) -> Vec<Input> {
+    if inputs_set.is_empty() {
+        return vec![];
+    }
+    
     inputs_set.split(',')
         .filter_map(|s| {
             let parts: Vec<&str> = s.split(':').collect();
-            if parts.len() == 4 {
+            if parts.len() == 5 {
                 Some(Input {
                     txid: parts[0].to_string(),
                     vout: parts[1].parse().unwrap(),
                     value: parts[2].parse().unwrap(),
                     script_pubkey: parts[3].to_string(),
+                    derivation_path: parts[4].to_string(),
                 })
             } else {
                 None
@@ -239,8 +301,11 @@ fn parse_inputs(inputs_set: &str) -> Vec<Input> {
         .collect()
 }
 
-
 fn parse_outputs(outputs_set: &str) -> Vec<Output> {
+    if outputs_set.is_empty() {
+        return vec![];
+    }
+    
     outputs_set.split(',')
         .filter_map(|s| {
             let parts: Vec<&str> = s.split(':').collect();
@@ -260,23 +325,28 @@ fn parse_outputs(outputs_set: &str) -> Vec<Output> {
 pub fn build_transaction(
     inputs_set: &str,
     output_set: &str,
-    private_key: &str,
-    first_thread: usize,
-    num_threads: usize,
-    total_threads: usize,
-    target: usize
-) -> PyResult<String> {
+    mnemonic: &str,
+    base_path: &str,
+    first_thread: u32,
+    num_threads: u32,
+    total_threads: u32,
+    target: usize,
+    min_value: u64,
+) -> PyResult<(String, String)> {
     let inputs = parse_inputs(inputs_set);
     let outputs = parse_outputs(output_set);
-    let signed_tx = build_signed_transactions_parallel(
+    
+    let (signed_tx, path) = build_signed_transactions_parallel(
         inputs,
         outputs,
-        private_key,
+        mnemonic,
+        base_path,
         first_thread,
         num_threads,
         total_threads,
-        target
+        target,
+        min_value
     );
-    Ok(hex::encode(serialize(&signed_tx)))
+    
+    Ok((hex::encode(serialize(&signed_tx)), path))
 }
-

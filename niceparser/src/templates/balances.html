@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
-    <title>Hello, world!</title>
+    <title>MY HASH IS NICE</title>
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <meta name="description" content="" />
     <link rel="icon" href="favicon.png">
@@ -17,7 +17,7 @@
 
     <header class="page__header">
         <div class="container section">
-            <h1>MY HASH IS NICE</h1>
+            <h1><a href="/">MY HASH IS NICE</a></h1>
             <p><b>Make your Bitcoin transactions nicer and earn MHIN.</b></p>
         </div>
     </header>
@@ -43,7 +43,7 @@
                     </tr>
                     {% for balance in balances %}
                     <tr>
-                        <td>{{ display_utxo(balance["utxo"], True) | safe }}</td>
+                        <td>{{ display_utxo(balance["destination"], True) | safe }}</td>
                         <td style="text-align: right;">{{ display_quantity(balance["quantity"]) }}</td>
                     </tr>
                     {% endfor %}

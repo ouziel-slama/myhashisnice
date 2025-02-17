@@ -280,14 +280,18 @@
 
 h2.subtitle1 {
     margin-top: 0 !important;
-    margin-bottom: 0.5em !important;
+    margin-bottom: 0em !important;
   }
 
 h2.subtitle2 {
     margin-top: 0.5em !important;
-    margin-bottom: 0.3em !important;
+    margin-bottom: 0em !important;
 }
-  
+h3.subtitle2 {
+  margin-top: 0.6em !important;
+  margin-bottom: 0.3em !important;
+}
+
   h3,
   .util_txt--h3 {
     font-size: var(--font_size--xlarge);
@@ -1299,6 +1303,17 @@ h2.subtitle2 {
       margin-block-start: var(--space_section);
     }
   }
-  
+
+  h1 a {
+    text-decoration: none !important;
+    color:#18181b !important;
+    
+  }
+  h1 a:hover {
+    text-decoration: none !important;
+    color:#18181b !important;
+    
+  }
+    
   /* !SECTION Page Layout */
   /* !SECTION Layout */

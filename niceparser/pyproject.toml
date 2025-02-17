@@ -1,6 +1,5 @@
 [project]
-name = "nicesbuilder"
-dynamic = ["version"]
+name = "niceparser"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 version = "0.1.0"
