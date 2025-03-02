@@ -58,35 +58,14 @@
                 <table>
                     <tr>
                     <th>Block</th>
-                    <th>Destination</th>
+                    <th>Txid</th>
                     <th>Reward</th>
                     </tr>
                     {% for reward in rewards %}
                     <tr>
                         <td>{{ reward["height"] }}</td>
-                        <td>{{ display_utxo(reward["destination"], True) | safe }}</td>
-                        <td style="text-align: right;">{{ display_quantity(reward["quantity"]) }}</td>
-                    </tr>
-                    {% endfor %}
-                </table>
-            </div>
-        </section>
-        <section id="text" class="container">
-            <h2 class="subtitle2">Last nice movements</h2>
-            <div class="table-wrapper">
-                <table>
-                    <tr>
-                    <th>Block</th>
-                    <th>Source</th>
-                    <th>Destination</th>
-                    <th>Quantity</th>
-                    </tr>
-                    {% for movement in movements %}
-                    <tr>
-                        <td>{{ movement["height"] }}</td>
-                        <td>{{ display_utxo(movement["source"]) | safe }}</td>
-                        <td>{{ display_utxo(movement["destination"]) | safe }}</td>
-                        <td style="text-align: right;">{{ display_quantity(movement["quantity"]) }}</td>
+                        <td>{{ display_utxo(reward["txid"], True) | safe }}</td>
+                        <td style="text-align: right;">{{ display_quantity(reward["reward"]) }}</td>
                     </tr>
                     {% endfor %}
                 </table>
