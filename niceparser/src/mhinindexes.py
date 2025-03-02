@@ -470,7 +470,6 @@ class MhinIndexes:
             if last_nice_hash is not None:
                 cursor.execute("UPDATE stats SET value = ? WHERE key = 'last_nice_hash'", (last_nice_hash,))
             if supply_delta > 0:
-                print(f"Supply delta: {supply_delta}")
                 cursor.execute("UPDATE stats SET value = value + ? WHERE key = 'supply'", (supply_delta,))
             if utxos_count_delta != 0:
                 cursor.execute("UPDATE stats SET value = value + ? WHERE key = 'utxos_count'", (utxos_count_delta,))

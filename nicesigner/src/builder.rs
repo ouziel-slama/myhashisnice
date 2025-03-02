@@ -17,7 +17,7 @@ use bitcoin::{
 
 use hdwallet::{KeyChain, DefaultKeyChain, ExtendedPrivKey, ChainPath};
 use bip39::Mnemonic;
-use secp256k1::{Message, Secp256k1};  // Ajout de Secp256k1 ici
+use secp256k1::{Message, Secp256k1};
 use hex;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -25,7 +25,7 @@ use std::fs;
 use std::io::Write;
 use std::time::Instant;
 use pyo3::prelude::*;
-use zerocopy::AsBytes;
+use zerocopy::AsBytes;  // Import manquant
 
 #[derive(Clone)]
 struct Input {
@@ -60,7 +60,7 @@ fn save_derivation_path(txid: &str, path: &str) -> std::io::Result<()> {
     Ok(())
 }
 
-fn build_signed_transactions_parallel(
+fn build_transactions_parallel(
     inputs: Vec<Input>,
     outputs: Vec<Output>,
     mnemonic: &str,
@@ -73,7 +73,7 @@ fn build_signed_transactions_parallel(
 ) -> (Transaction, String) {
     let found_result = Arc::new(Mutex::new(None));
     let stop_signal = Arc::new(AtomicBool::new(false));
-    let total_signatures = Arc::new(AtomicUsize::new(0));
+    let total_attempts = Arc::new(AtomicUsize::new(0));
     let start_time = Instant::now();
     let mut handles = vec![];
 
@@ -92,7 +92,7 @@ fn build_signed_transactions_parallel(
         let base_path = base_path.to_string();
         let found_result = Arc::clone(&found_result);
         let stop_signal = Arc::clone(&stop_signal);
-        let total_signatures = Arc::clone(&total_signatures);
+        let total_attempts = Arc::clone(&total_attempts);
         let start_time = start_time;
         let mnemonic_clone = Arc::clone(&mnemonic);
 
@@ -109,7 +109,7 @@ fn build_signed_transactions_parallel(
                 return;
             }
 
-            if let Some((signed_tx, path)) = build_nice_signed_transaction(
+            if let Some((tx, path)) = find_nice_transaction(
                 &inputs_clone,
                 &outputs_clone,
                 &cached_keys,
@@ -119,11 +119,11 @@ fn build_signed_transactions_parallel(
                 total_threads,
                 min_value,
                 &stop_signal,
-                &total_signatures,
+                &total_attempts,
                 &start_time,
             ) {
                 let mut found = found_result.lock().unwrap();
-                *found = Some((signed_tx, path));
+                *found = Some((tx, path));
                 stop_signal.store(true, Ordering::Relaxed);
             }
         });
@@ -137,12 +137,17 @@ fn build_signed_transactions_parallel(
 
     let found = found_result.lock().unwrap();
     match &*found {
-        Some(result) => result.clone(),
+        Some((tx, path)) => {
+            // Signer la transaction finale
+            let seed = mnemonic.to_seed("");
+            let signed_tx = sign_transaction(tx.clone(), &inputs, seed.as_bytes().to_vec(), path);
+            (signed_tx, path.clone())
+        },
         None => panic!("Opération interrompue par l'utilisateur")
     }
 }
 
-fn build_nice_signed_transaction(
+fn find_nice_transaction(
     inputs: &[Input],
     outputs: &[Output],
     cached_keys: &CachedKeys,
@@ -152,13 +157,13 @@ fn build_nice_signed_transaction(
     increment: u32,
     min_value: u64,
     stop_signal: &Arc<AtomicBool>,
-    total_signatures: &Arc<AtomicUsize>,
+    total_attempts: &Arc<AtomicUsize>,
     start_time: &Instant,
 ) -> Option<(Transaction, String)> {
     println!("Starting thread with start index {} and increment {}", start_index, increment);
     let target_prefix = "0".repeat(target);
     let mut current_index = start_index;
-    let mut signatures_count = 0u64;
+    let mut attempts_count = 0u64;
     
     let mut tx_template = Transaction {
         version: Version::TWO,
@@ -188,44 +193,41 @@ fn build_nice_signed_transaction(
         let compressed_pubkey = CompressedPublicKey::from_slice(&secp_pubkey.serialize()).unwrap();
         let address = Address::p2wpkh(&compressed_pubkey, Network::Bitcoin);
 
-        let mut unsigned_tx = tx_template.clone();
+        let mut tx = tx_template.clone();
         
-        unsigned_tx.output.push(TxOut {
+        // Ajouter la sortie de vanité
+        tx.output.push(TxOut {
             value: Amount::from_sat(min_value),
             script_pubkey: address.script_pubkey(),
         });
 
+        // Ajouter les sorties supplémentaires
         for output in outputs {
-            unsigned_tx.output.push(TxOut {
+            tx.output.push(TxOut {
                 value: Amount::from_sat(output.value),
                 script_pubkey: ScriptBuf::from(hex::decode(&output.script_pubkey).unwrap()),
             });
         }
 
-        let signed_tx = sign_transaction_optimized(
-            unsigned_tx,
-            inputs,
-            cached_keys,
-        );
-
-        let txid = signed_tx.compute_txid().to_string();
+        // Vérification du txid sans avoir besoin de signer
+        let txid = tx.compute_txid().to_string();
         if txid.starts_with(&target_prefix) && txid.chars().nth(target_prefix.len()) != Some('0') {
             if let Err(e) = save_derivation_path(&txid, &output_path) {
                 eprintln!("Failed to save derivation path: {}", e);
             }
-            let total = total_signatures.load(Ordering::Relaxed);
-            println!("\nFound matching transaction! Total signatures done: {}", total);
-            return Some((signed_tx, output_path));
+            let total = total_attempts.load(Ordering::Relaxed);
+            println!("\nFound matching transaction! Total attempts: {}", total);
+            return Some((tx, output_path));
         }
 
         current_index += increment;
-        signatures_count += 1;
+        attempts_count += 1;
         
-        if signatures_count % 10000 == 0 {
-            let new_total = total_signatures.fetch_add(10000, Ordering::Relaxed);
+        if attempts_count % 10000 == 0 {
+            let new_total = total_attempts.fetch_add(10000, Ordering::Relaxed);
             let elapsed = start_time.elapsed();
             let speed = (new_total + 10000) as f64 / elapsed.as_secs_f64();
-            print!("\rTotal signatures: {} - Elapsed: {:.2}s - Speed: {:.0} sig/s     ", 
+            print!("\rTotal attempts: {} - Elapsed: {:.2}s - Speed: {:.0} txid/s     ", 
                 new_total + 10000,
                 elapsed.as_secs_f64(),
                 speed);
@@ -236,11 +238,19 @@ fn build_nice_signed_transaction(
     None
 }
 
-fn sign_transaction_optimized(
+fn sign_transaction(
     mut unsigned_tx: Transaction,
     inputs: &[Input],
-    cached_keys: &CachedKeys,
+    seed: Vec<u8>,
+    vanity_path: &str,
 ) -> Transaction {
+    println!("Signing final transaction...");
+    
+    // Créer les objets nécessaires pour la signature
+    let master = ExtendedPrivKey::with_seed(&seed).unwrap();
+    let keychain = DefaultKeyChain::new(master);
+    let secp = Secp256k1::new();
+    
     let mut sighashes = Vec::with_capacity(inputs.len());
     {
         let mut sighasher = SighashCache::new(&unsigned_tx);
@@ -260,12 +270,12 @@ fn sign_transaction_optimized(
 
     for (input_index, (sighash, input)) in sighashes.into_iter().zip(inputs.iter()).enumerate() {
         let chain_path = ChainPath::from(input.derivation_path.as_str());
-        let (derived_key, _) = cached_keys.keychain.derive_private_key(chain_path).unwrap();
+        let (derived_key, _) = keychain.derive_private_key(chain_path).unwrap();
         let secp_secret_key = secp256k1::SecretKey::from_slice(derived_key.private_key.as_ref()).unwrap();
-        let secp_pubkey = secp256k1::PublicKey::from_secret_key(&cached_keys.secp, &secp_secret_key);
+        let secp_pubkey = secp256k1::PublicKey::from_secret_key(&secp, &secp_secret_key);
 
         let msg = Message::from(sighash);
-        let signature = cached_keys.secp.sign_ecdsa(&msg, &secp_secret_key);
+        let signature = secp.sign_ecdsa(&msg, &secp_secret_key);
 
         let signature = bitcoin::ecdsa::Signature {
             signature,
@@ -275,6 +285,15 @@ fn sign_transaction_optimized(
         unsigned_tx.input[input_index].witness = Witness::p2wpkh(&signature, &secp_pubkey);
     }
     
+    // Signer également la sortie de vanité si nécessaire
+    // Note: Ce n'est généralement pas nécessaire pour le fonctionnement,
+    // mais ajouté pour être complet si vous avez besoin d'utiliser cette adresse plus tard
+    let chain_path = ChainPath::from(vanity_path);
+    let (derived_key, _) = keychain.derive_private_key(chain_path).unwrap();
+    let _vanity_secret_key = secp256k1::SecretKey::from_slice(derived_key.private_key.as_ref()).unwrap();
+    // La clé privée de la sortie de vanité est disponible ici si vous en avez besoin
+    
+    println!("Transaction signed successfully");
     unsigned_tx
 }
 
@@ -336,7 +355,7 @@ pub fn build_transaction(
     let inputs = parse_inputs(inputs_set);
     let outputs = parse_outputs(output_set);
     
-    let (signed_tx, path) = build_signed_transactions_parallel(
+    let (signed_tx, path) = build_transactions_parallel(
         inputs,
         outputs,
         mnemonic,
