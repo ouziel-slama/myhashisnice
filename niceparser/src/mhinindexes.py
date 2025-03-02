@@ -9,6 +9,8 @@ import signal
 from multiprocessing.sharedctypes import Value
 import ctypes
 
+from nicefetcher import utils
+
 def rowtracer(cursor, sql):
     """Converts fetched SQL data into dict-style"""
     return {
@@ -33,6 +35,12 @@ def apsw_connect(filename):
     db.setrowtrace(rowtracer)
     cursor.close()
     return db
+
+
+def count_zeros(hash_string):
+    original_length = len(hash_string)
+    stripped_length = len(hash_string.lstrip('0'))
+    return original_length - stripped_length
 
 
 class MhinIndexes:
@@ -82,6 +90,26 @@ class MhinIndexes:
                 file_number INTEGER PRIMARY KEY,
                 position INTEGER
             );
+
+            CREATE TABLE IF NOT EXISTS stats (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            );
+            
+            INSERT OR REPLACE INTO stats (key, value) 
+            SELECT 'supply', COALESCE(SUM(balance), 0)
+            FROM balances;
+
+            INSERT OR REPLACE INTO stats (key, value) 
+            SELECT 'utxos_count', COALESCE(COUNT(*), 0)
+            FROM nicehashes;
+
+            INSERT OR IGNORE INTO stats (key, value) VALUES ('nice_hashes_count', '0');
+            INSERT OR IGNORE INTO stats (key, value) VALUES ('nicest_hash', '');
+            INSERT OR IGNORE INTO stats (key, value) VALUES ('last_nice_hash', '');
+            INSERT OR IGNORE INTO stats (key, value) VALUES ('first_nice_hash', '000000329877c7141c6e50b04ed714a860abcb15135611f6ac92609cb392ef60');
+            INSERT OR IGNORE INTO stats (key, value) VALUES ('max_zero', '0');
+            INSERT OR IGNORE INTO stats (key, value) VALUES ('last_parsed_block', '0');
         """)
         
         db.close()
@@ -108,7 +136,7 @@ class MhinIndexes:
         
         # Store the reference to the shared variable
         self.last_indexed_block = last_indexed_block
-        
+
         # Reset the stop event
         self.stop_event.clear()
         
@@ -308,7 +336,12 @@ class MhinIndexes:
         # Save the initial position
         initial_pos = pos
         file.seek(pos)
-        
+        nice_hash_count = 0
+        last_nice_hash = None
+        max_zero = int(cursor.execute("SELECT value FROM stats WHERE key = 'max_zero'").fetchone()['value'])
+        supply_delta = 0
+        utxos_count_delta = 0
+
         # Read the block header
         height, block_hash, block_length, header_complete = MhinIndexes._read_block_header(file)
         
@@ -358,7 +391,7 @@ class MhinIndexes:
                     if len(txid_bytes) != 32:
                         raise Exception(f"Incomplete transaction ID at position {record_pos}")
                     
-                    current_txid = binascii.hexlify(txid_bytes).decode('utf-8')
+                    current_txid = utils.inverse_hash(binascii.hexlify(txid_bytes).decode('utf-8'))
                     current_reward = 0
                     
                 elif inner_record_type == b'R':  # Transaction reward
@@ -371,11 +404,20 @@ class MhinIndexes:
                     
                     # If we have a txid and a reward, record in the nicehashes table
                     if current_txid:
+                        nice_hash_count += 1
+                        last_nice_hash = current_txid
                         cursor.execute(
-                            "INSERT OR REPLACE INTO nicehashes (height, txid, reward) VALUES (?, ?, ?)",
+                            "INSERT INTO nicehashes (height, txid, reward) VALUES (?, ?, ?)",
                             (height, current_txid, current_reward)
                         )
-                    
+                        zero_count = count_zeros(current_txid)
+                        if zero_count > max_zero:
+                            cursor.execute("UPDATE stats SET value = ? WHERE key = 'max_zero'", (zero_count,))
+                            cursor.execute("UPDATE stats SET value = ? WHERE key = 'nicest_hash'", (current_txid,))
+                            max_zero = count_zeros(current_txid)
+                        supply_delta += current_reward
+                        utxos_count_delta += 1
+
                 elif inner_record_type in (b'A', b'M'):  # Balance addition
                     # Read the UTXO ID and amount
                     utxo_id_bytes = file.read(8)
@@ -386,14 +428,20 @@ class MhinIndexes:
                     
 
                     balance = struct.unpack('<Q', balance_bytes)[0]
-                    
+
                     # Update or insert the balance in the balances table
                     cursor.execute(
                         "INSERT OR REPLACE INTO balances (utxo_id, balance) "
                         "VALUES (?, COALESCE((SELECT balance FROM balances WHERE utxo_id = ?) + ?, ?))",
                         (utxo_id_bytes, utxo_id_bytes, balance, balance)
                     )
-                    
+                    changes = cursor.connection.changes()
+                    # Si changes == 2, c'était un REPLACE (1 DELETE + 1 INSERT)
+                    # Si changes == 1, c'était un INSERT simple
+                    operation_type = "REPLACE" if changes == 2 else "INSERT"
+                    if operation_type == "INSERT":
+                        utxos_count_delta += 1
+
                 elif inner_record_type == b'P':  # Balance removal
                     # Read the UTXO ID and amount
                     utxo_id_bytes = file.read(8)
@@ -404,6 +452,7 @@ class MhinIndexes:
                     
                     # Remove the balance from the balances table
                     cursor.execute("DELETE FROM balances WHERE utxo_id = ?", (utxo_id_bytes,))
+                    utxos_count_delta -= 1
             
             # Ensure advancing to the end of the block
             file.seek(block_end_pos)
@@ -412,9 +461,21 @@ class MhinIndexes:
             if last_indexed_block is not None:
                 with last_indexed_block.get_lock():
                     last_indexed_block.value = max(height, last_indexed_block.value)
-            
+
             #print(f"Block {height} processed and saved to database")
-            
+
+            # update nice_hashes_count
+            if nice_hash_count > 0:
+                cursor.execute("UPDATE stats SET value = value + ? WHERE key = 'nice_hashes_count'", (nice_hash_count,))
+            if last_nice_hash is not None:
+                cursor.execute("UPDATE stats SET value = ? WHERE key = 'last_nice_hash'", (last_nice_hash,))
+            if supply_delta > 0:
+                print(f"Supply delta: {supply_delta}")
+                cursor.execute("UPDATE stats SET value = value + ? WHERE key = 'supply'", (supply_delta,))
+            if utxos_count_delta != 0:
+                cursor.execute("UPDATE stats SET value = value + ? WHERE key = 'utxos_count'", (utxos_count_delta,))
+            cursor.execute("UPDATE stats SET value = ? WHERE key = 'last_parsed_block'", (height,))
+
             return block_end_pos, True
             
         except Exception as e:
@@ -506,7 +567,7 @@ class MhinIndexes:
                     #print(f"{blocks_processed} blocks processed, checking again in {wait_time} second")
                 else:
                     wait_time = 5
-                    print(f"No blocks processed, checking again in {wait_time} seconds")
+                    #print(f"No blocks processed, checking again in {wait_time} seconds")
                 
                 # Wait before checking again, while checking the stop event
                 for _ in range(wait_time):

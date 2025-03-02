@@ -169,59 +169,12 @@ class MhinQueries:
         with self.pool.connection() as db:
             cursor = db.cursor()
             
-            # Get current max block height for cache validation
-            max_height = cursor.execute("SELECT MAX(height) as max_height FROM blocks").fetchone()
-            current_max_height = max_height['max_height'] if max_height and max_height['max_height'] is not None else 0
-            
-            # Use cache if available and still valid
-            if self._stats_cache is not None and self._stats_cache_block_height == current_max_height:
-                return self._stats_cache
-            
-            # Calculate MHIN Supply (sum of all balances)
-            mhin_supply = cursor.execute("SELECT SUM(balance) as total FROM balances").fetchone()
-            mhin_supply = mhin_supply['total'] if mhin_supply and mhin_supply['total'] is not None else 0
-            
-            # Count of nice hashes
-            nice_hashes_count = cursor.execute("SELECT COUNT(*) as count FROM nicehashes").fetchone()
-            nice_hashes_count = nice_hashes_count['count'] if nice_hashes_count else 0
-            
-            # Nicest hash (with most leading zeros)
-            nicest_hash = cursor.execute(
-                """
-                SELECT txid, reward, height, 
-                       LENGTH(txid) - LENGTH(LTRIM(txid, '0')) AS leading_zeros
-                FROM nicehashes
-                ORDER BY leading_zeros DESC, height DESC
-                LIMIT 1
-                """
-            ).fetchone()
-            
-            # Last nice hash
-            last_nice_hash = cursor.execute(
-                "SELECT txid, reward, height FROM nicehashes ORDER BY height DESC LIMIT 1"
-            ).fetchone()
-            
-            # First nice hash
-            first_nice_hash = cursor.execute(
-                "SELECT txid, reward, height FROM nicehashes ORDER BY height ASC LIMIT 1"
-            ).fetchone()
-            
-            # UTXOs count
-            utxos_count = cursor.execute("SELECT COUNT(*) as count FROM balances").fetchone()
-            utxos_count = utxos_count['count'] if utxos_count else 0
-            
-            # Prepare and format the results
-            stats = {
-                "supply": mhin_supply,
-                "nice_hashes_count": nice_hashes_count,
-                "nicest_hash": nicest_hash['txid'],
-                "last_nice_hash": last_nice_hash['txid'],
-                "first_nice_hash": first_nice_hash['txid'],
-                "utxos_count": utxos_count
-            }
-            
-            # Update cache
-            self._stats_cache = stats
-            self._stats_cache_block_height = current_max_height
-            
+            rows = cursor.execute("SELECT * FROM stats").fetchall()
+            stats = {row['key']: row['value'] for row in rows}
+            stats["supply"] = int(stats["supply"])
+            stats["utxos_count"] = int(stats["utxos_count"])
+            stats["nice_hashes_count"] = int(stats["nice_hashes_count"])
+            stats["max_zero"] = int(stats["max_zero"])
+            stats["last_parsed_block"] = int(stats["last_parsed_block"])
+
             return stats

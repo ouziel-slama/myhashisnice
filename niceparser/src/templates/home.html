@@ -41,11 +41,13 @@
                     <td style="width: 50%;">
                         <h2 class="subtitle1">Nice numbers</h2>
                         <ul>
-                            <li>MHIN Supply: {{ '{:,}'.format(stats["supply"]  / 10**8) }}</li>
-                            <li>Nice hases count: {{ '{:,}'.format(stats["nice_hashes_count"])  }}</li>
-                            <li>Nicest hash: {{ display_utxo(stats["nicest_hash"]) | safe }}</li>
-                            <li>Last nice hash: {{ display_utxo(stats["last_nice_hash"]) | safe }}</li>
-                            <li>First nice hash: {{ display_utxo(stats["first_nice_hash"]) | safe }}</li>
+                            <li>Last Parsed Block: {{ stats["last_parsed_block"] }}</li>
+                            <li>MHIN Supply: {{ '{:,}'.format(stats["supply"] / 10**8) }}</li>
+                            <li>Nice Hases Count: {{ '{:,}'.format(stats["nice_hashes_count"])  }}</li>
+                            <li>Nicest Hash: {{ display_utxo(stats["nicest_hash"]) | safe }}</li>
+                            <li>Last Nice Hash: {{ display_utxo(stats["last_nice_hash"]) | safe }}</li>
+                            <li>First Nice Hash: {{ display_utxo(stats["first_nice_hash"]) | safe }}</li>
+                            <li>UTOXs Count: {{ '{:,}'.format(stats["utxos_count"])  }}</li>
                         </ul>
                     </td>
                 </tr>

@@ -110,7 +110,7 @@ class MhinStore:
                     height = struct.unpack('<I', height_bytes)[0]
                     block_length = struct.unpack('<Q', length_bytes)[0]
                     
-                    print(f"Block found: height={height}, length={block_length}")
+                    #print(f"Block found: height={height}, length={block_length}")
                     
                     # Calculate expected end position of the block
                     expected_end_pos = f.tell() + block_length
