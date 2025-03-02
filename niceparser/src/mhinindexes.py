@@ -341,6 +341,7 @@ class MhinIndexes:
         max_zero = int(cursor.execute("SELECT value FROM stats WHERE key = 'max_zero'").fetchone()['value'])
         supply_delta = 0
         utxos_count_delta = 0
+        utxo_ids_to_delete = []
 
         # Read the block header
         height, block_hash, block_length, header_complete = MhinIndexes._read_block_header(file)
@@ -429,17 +430,19 @@ class MhinIndexes:
 
                     balance = struct.unpack('<Q', balance_bytes)[0]
 
-                    # Update or insert the balance in the balances table
-                    cursor.execute(
-                        "INSERT OR REPLACE INTO balances (utxo_id, balance) "
-                        "VALUES (?, COALESCE((SELECT balance FROM balances WHERE utxo_id = ?) + ?, ?))",
-                        (utxo_id_bytes, utxo_id_bytes, balance, balance)
-                    )
-                    changes = cursor.connection.changes()
-                    # Si changes == 2, c'était un REPLACE (1 DELETE + 1 INSERT)
-                    # Si changes == 1, c'était un INSERT simple
-                    operation_type = "REPLACE" if changes == 2 else "INSERT"
-                    if operation_type == "INSERT":
+                    # Get the existing balance first (once)
+                    existing = cursor.execute("SELECT balance FROM balances WHERE utxo_id = ?", 
+                                            (utxo_id_bytes,)).fetchone()
+
+                    if existing:
+                        # Update existing record
+                        new_balance = existing['balance'] + balance
+                        cursor.execute("UPDATE balances SET balance = ? WHERE utxo_id = ?",
+                                    (new_balance, utxo_id_bytes))
+                    else:
+                        # Insert new record
+                        cursor.execute("INSERT INTO balances (utxo_id, balance) VALUES (?, ?)",
+                                    (utxo_id_bytes, balance))
                         utxos_count_delta += 1
 
                 elif inner_record_type == b'P':  # Balance removal
@@ -451,9 +454,14 @@ class MhinIndexes:
                         raise Exception(f"Incomplete balance removal data at position {record_pos}")
                     
                     # Remove the balance from the balances table
-                    cursor.execute("DELETE FROM balances WHERE utxo_id = ?", (utxo_id_bytes,))
+                    utxo_ids_to_delete.append(utxo_id_bytes)
                     utxos_count_delta -= 1
-            
+
+            if len(utxo_ids_to_delete) > 0:
+                # Convert the list to a parameter format that works with SQLite
+                placeholders = ','.join(['?'] * len(utxo_ids_to_delete))
+                cursor.execute(f"DELETE FROM balances WHERE utxo_id IN ({placeholders})", utxo_ids_to_delete)
+                
             # Ensure advancing to the end of the block
             file.seek(block_end_pos)
             
