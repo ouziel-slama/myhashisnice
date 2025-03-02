@@ -434,7 +434,6 @@ class MhinIndexes:
                             cursor.execute("UPDATE stats SET value = ? WHERE key = 'nicest_hash'", (current_txid,))
                             max_zero = count_zeros(current_txid)
                         supply_delta += current_reward
-                        utxos_count_delta += 1
 
                 elif inner_record_type in (b'A', b'M'):  # Balance addition
                     # Read the UTXO ID and amount
