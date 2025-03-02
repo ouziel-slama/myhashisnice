@@ -43,6 +43,11 @@ def count_zeros(hash_string):
     return original_length - stripped_length
 
 
+def get_shard_id(utxo_id):
+    """Determine the shard ID based on the first byte of utxo_id"""
+    return utxo_id[0] % 10
+
+
 class MhinIndexes:
     def __init__(self, mhin_store_base_path):
         self.mhin_store_base_path = mhin_store_base_path
@@ -78,14 +83,20 @@ class MhinIndexes:
                 txid TEXT UNIQUE,
                 reward INTEGER
             );
-            
-            CREATE TABLE IF NOT EXISTS balances (
-                utxo_id BLOB PRIMARY KEY,
-                balance INTEGER
-            );
-            
-            CREATE INDEX IF NOT EXISTS idx_balances_balance ON balances(balance);
-            
+        """)
+        
+        # Create 10 sharded balance tables
+        for shard in range(10):
+            cursor.execute(f"""
+                CREATE TABLE IF NOT EXISTS balances_{shard} (
+                    utxo_id BLOB PRIMARY KEY,
+                    balance INTEGER
+                );
+                
+                CREATE INDEX IF NOT EXISTS idx_balances_{shard}_balance ON balances_{shard}(balance);
+            """)
+        
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS processed_files (
                 file_number INTEGER PRIMARY KEY,
                 position INTEGER
@@ -96,14 +107,8 @@ class MhinIndexes:
                 value TEXT
             );
             
-            INSERT OR REPLACE INTO stats (key, value) 
-            SELECT 'supply', COALESCE(SUM(balance), 0)
-            FROM balances;
-
-            INSERT OR REPLACE INTO stats (key, value) 
-            SELECT 'utxos_count', COALESCE(COUNT(*), 0)
-            FROM nicehashes;
-
+            INSERT OR IGNORE INTO stats (key, value) VALUES ('supply', '0');
+            INSERT OR IGNORE INTO stats (key, value) VALUES ('utxos_count', '0');
             INSERT OR IGNORE INTO stats (key, value) VALUES ('nice_hashes_count', '0');
             INSERT OR IGNORE INTO stats (key, value) VALUES ('nicest_hash', '');
             INSERT OR IGNORE INTO stats (key, value) VALUES ('last_nice_hash', '');
@@ -111,6 +116,14 @@ class MhinIndexes:
             INSERT OR IGNORE INTO stats (key, value) VALUES ('max_zero', '0');
             INSERT OR IGNORE INTO stats (key, value) VALUES ('last_parsed_block', '0');
         """)
+        
+        # Update supply stat based on all sharded tables
+        total_supply_query = " + ".join([f"COALESCE((SELECT SUM(balance) FROM balances_{i}), 0)" for i in range(10)])
+        cursor.execute(f"UPDATE stats SET value = ({total_supply_query}) WHERE key = 'supply'")
+        
+        # Update utxos_count based on all sharded tables
+        total_utxos_query = " + ".join([f"COALESCE((SELECT COUNT(*) FROM balances_{i}), 0)" for i in range(10)])
+        cursor.execute(f"UPDATE stats SET value = ({total_utxos_query}) WHERE key = 'utxos_count'")
         
         db.close()
     
@@ -341,7 +354,11 @@ class MhinIndexes:
         max_zero = int(cursor.execute("SELECT value FROM stats WHERE key = 'max_zero'").fetchone()['value'])
         supply_delta = 0
         utxos_count_delta = 0
-        utxo_ids_to_delete = []
+        utxo_ids_to_delete = {}  # Dictionary mapping shard_id to list of utxo_ids
+
+        # Initialize the dictionary with empty lists for all shards
+        for shard in range(10):
+            utxo_ids_to_delete[shard] = []
 
         # Read the block header
         height, block_hash, block_length, header_complete = MhinIndexes._read_block_header(file)
@@ -370,7 +387,7 @@ class MhinIndexes:
         try:
             # Insert block information into the blocks table
             cursor.execute(
-                "INSERT OR REPLACE INTO blocks (height, hash, file_number, position) VALUES (?, ?, ?, ?)",
+                "INSERT INTO blocks (height, hash, file_number, position) VALUES (?, ?, ?, ?)",
                 (height, block_hash, file_num, initial_pos)
             )
             
@@ -427,21 +444,23 @@ class MhinIndexes:
                     if len(utxo_id_bytes) != 8 or len(balance_bytes) != 8:
                         raise Exception(f"Incomplete balance data at position {record_pos}")
                     
-
                     balance = struct.unpack('<Q', balance_bytes)[0]
-
+                    
+                    # Determine the shard ID
+                    shard_id = get_shard_id(utxo_id_bytes)
+                    
                     # Get the existing balance first (once)
-                    existing = cursor.execute("SELECT balance FROM balances WHERE utxo_id = ?", 
+                    existing = cursor.execute(f"SELECT balance FROM balances_{shard_id} WHERE utxo_id = ?", 
                                             (utxo_id_bytes,)).fetchone()
 
                     if existing:
                         # Update existing record
                         new_balance = existing['balance'] + balance
-                        cursor.execute("UPDATE balances SET balance = ? WHERE utxo_id = ?",
+                        cursor.execute(f"UPDATE balances_{shard_id} SET balance = ? WHERE utxo_id = ?",
                                     (new_balance, utxo_id_bytes))
                     else:
                         # Insert new record
-                        cursor.execute("INSERT INTO balances (utxo_id, balance) VALUES (?, ?)",
+                        cursor.execute(f"INSERT INTO balances_{shard_id} (utxo_id, balance) VALUES (?, ?)",
                                     (utxo_id_bytes, balance))
                         utxos_count_delta += 1
 
@@ -453,14 +472,17 @@ class MhinIndexes:
                     if len(utxo_id_bytes) != 8 or len(balance_bytes) != 8:
                         raise Exception(f"Incomplete balance removal data at position {record_pos}")
                     
-                    # Remove the balance from the balances table
-                    utxo_ids_to_delete.append(utxo_id_bytes)
+                    # Determine the shard ID and add to deletion list
+                    shard_id = get_shard_id(utxo_id_bytes)
+                    utxo_ids_to_delete[shard_id].append(utxo_id_bytes)
                     utxos_count_delta -= 1
 
-            if len(utxo_ids_to_delete) > 0:
-                # Convert the list to a parameter format that works with SQLite
-                placeholders = ','.join(['?'] * len(utxo_ids_to_delete))
-                cursor.execute(f"DELETE FROM balances WHERE utxo_id IN ({placeholders})", utxo_ids_to_delete)
+            # Process deletions for each shard
+            for shard_id, utxo_ids in utxo_ids_to_delete.items():
+                if utxo_ids:
+                    # Convert the list to a parameter format that works with SQLite
+                    placeholders = ','.join(['?'] * len(utxo_ids))
+                    cursor.execute(f"DELETE FROM balances_{shard_id} WHERE utxo_id IN ({placeholders})", utxo_ids)
                 
             # Ensure advancing to the end of the block
             file.seek(block_end_pos)
@@ -469,8 +491,6 @@ class MhinIndexes:
             if last_indexed_block is not None:
                 with last_indexed_block.get_lock():
                     last_indexed_block.value = max(height, last_indexed_block.value)
-
-            #print(f"Block {height} processed and saved to database")
 
             # update nice_hashes_count
             if nice_hash_count > 0:

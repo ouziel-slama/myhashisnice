@@ -3,7 +3,7 @@ import requests
 from contextlib import contextmanager
 from config import SingletonMeta, Config
 from nicefetcher import utils
-from mhinindexes import apsw_connect
+from mhinindexes import apsw_connect, get_shard_id
 
 class APSWConnectionPool(metaclass=SingletonMeta):
     def __init__(self, db_file):
@@ -93,10 +93,11 @@ class MhinQueries:
                 if txid and vout is not None:
                     # Convert to utxo_id
                     utxo_id = utxo_to_utxo_id(txid, vout)
+                    shard_id = get_shard_id(utxo_id)
                     
                     # Query the balance
                     row = cursor.execute(
-                        "SELECT balance FROM balances WHERE utxo_id = ?", 
+                        f"SELECT balance FROM balances_{shard_id} WHERE utxo_id = ?", 
                         (utxo_id,)
                     ).fetchone()
                     
