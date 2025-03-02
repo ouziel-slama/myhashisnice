@@ -33,7 +33,7 @@
         </section>
         {% if address %}
         <section id="text" class="container">
-            <h2 class="subtitle2">{{ display_quantity(balance_total) }}</h2>
+            <h2 class="subtitle2">{{ display_quantity(balance['total_balance']) }}</h2>
             <h4>UTXOs for {{ address }}</h4>
             <div class="table-wrapper">
                 <table>
@@ -41,10 +41,10 @@
                     <th>UTXO</th>
                     <th>Quantity</th>
                     </tr>
-                    {% for balance in balances %}
+                    {% for balance in balance['utxos'] %}
                     <tr>
-                        <td>{{ display_utxo(balance["destination"], True) | safe }}</td>
-                        <td style="text-align: right;">{{ display_quantity(balance["quantity"]) }}</td>
+                        <td>{{ display_utxo(balance["utxo"], True) | safe }}</td>
+                        <td style="text-align: right;">{{ display_quantity(balance["balance"]) }}</td>
                     </tr>
                     {% endfor %}
                 </table>

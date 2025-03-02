@@ -75,7 +75,6 @@ def display_quantity(quantity):
 @app.route("/")
 @auth.login_required
 def home():
-
     return render_template(
         "home.html",
         rewards=MhinQueries().get_latest_nicehashes(),
@@ -98,14 +97,12 @@ def protocol():
 @auth.login_required
 def balances():
     address = request.args.get("address")
-    balances = []
-    balance_total = None
+    balance = MhinQueries().get_balance_by_address(address)
     return render_template(
         "balances.html",
         display_utxo=display_utxo,
         display_quantity=display_quantity,
-        balances=balances,
-        balance_total=balance_total,
+        balance=balance,
         css_url=url_for("static", filename="home.css"),
         address=address,
     )

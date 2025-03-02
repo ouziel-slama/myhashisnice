@@ -78,6 +78,8 @@ class MhinQueries:
             print(f"Error fetching UTXOs for address {address}: {e}")
             return {"total_balance": 0, "utxos": []}
         
+        print("utxos", utxos)
+        
         total_balance = 0
         utxo_details = []
         
@@ -104,8 +106,7 @@ class MhinQueries:
                         total_balance += balance
                     
                     utxo_details.append({
-                        "txid": txid,
-                        "vout": vout,
+                        "utxo": f"{txid}:{vout}",
                         "balance": balance
                     })
         
