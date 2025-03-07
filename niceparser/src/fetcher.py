@@ -1,4 +1,3 @@
-
 import threading
 import queue
 import json
@@ -9,24 +8,30 @@ from nicefetcher import indexer
 
 from config import Config
 
-class RSFetcher():
+
+class RSFetcher:
     def __init__(self, start_height=0):
-        self.fetcher = indexer.Indexer({
-            "rpc_address": Config()["BACKEND_URL"],
-            "rpc_user": "rpc",
-            "rpc_password": "rpc",
-            "db_dir": Config()["FETCHER_DB"],
-            "start_height": start_height,
-            "log_file": "/tmp/fetcher.log",
-            "only_write_in_reorg_window": True,
-        })
+        self.fetcher = indexer.Indexer(
+            {
+                "rpc_address": Config()["BACKEND_URL"],
+                "rpc_user": "rpc",
+                "rpc_password": "rpc",
+                "db_dir": Config()["FETCHER_DB"],
+                "start_height": start_height,
+                "log_file": "/tmp/fetcher.log",
+                "only_write_in_reorg_window": True,
+            }
+        )
+        print(Config()["BACKEND_URL"])
         self.fetcher.start()
         self.prefeteched_block = queue.Queue(maxsize=10)
         self.prefetched_count = 0
         self.stopped_event = threading.Event()
         self.executors = []
         for _i in range(2):
-            executor = threading.Thread(target=self.prefetch_block, args=(self.stopped_event,))
+            executor = threading.Thread(
+                target=self.prefetch_block, args=(self.stopped_event,)
+            )
             executor.daemon = True
             executor.start()
             self.executors.append(executor)
@@ -39,20 +44,20 @@ class RSFetcher():
                 self.stopped_event.wait(timeout=0.1)
                 continue
         return None  # Return None only if stopped
-    
+
     def prefetch_block(self, stopped_event):
         while not stopped_event.is_set():
             if self.prefeteched_block.qsize() > 10:
                 # Add sleep to prevent CPU spinning
                 stopped_event.wait(timeout=0.1)
                 continue
-                
+
             block = self.fetcher.get_block_non_blocking()
             if block is None:
                 # Add sleep when no block is available
                 stopped_event.wait(timeout=0.1)
                 continue
-                
+
             block["tx"] = block.pop("transactions")
             while not stopped_event.is_set():
                 try:
@@ -61,14 +66,13 @@ class RSFetcher():
                 except queue.Full:
                     # Using event.wait instead of time.sleep
                     stopped_event.wait(timeout=0.1)
-    
+
     def stop(self):
         self.stopped_event.set()
         try:
             self.fetcher.stop()
         except Exception as e:
             pass
-
 
 
 class BitcoindRPCError(Exception):
@@ -124,6 +128,3 @@ def get_block_rpc(block_height):
     raw_block = rpc_call("getblock", [block_hash, 0])
     decoded_block = deserialize_block(raw_block, block_height)
     return decoded_block
-
-
-

@@ -1,6 +1,5 @@
 from decimal import Decimal as D
 import binascii
-from contextlib import contextmanager
 
 from flask import Flask, render_template, url_for, request
 from flask_httpauth import HTTPBasicAuth
@@ -25,19 +24,10 @@ NETWORK_NAME = "mainnet"
 Config().set_network(NETWORK_NAME)
 
 
-
-
 @auth.verify_password
 def verify_password(username, password):
-    if username in users and \
-            check_password_hash(users.get(username), password):
+    if username in users and check_password_hash(users.get(username), password):
         return username
-
-
-def utxo_to_utxo_id(txid, n):
-    txid = utils.inverse_hash(txid)
-    txid = binascii.unhexlify(txid)
-    return bytes(utils.pack_utxo(txid, n))
 
 
 def bold_zero(value):
@@ -109,4 +99,4 @@ def balances():
 
 
 if __name__ == "__main__":
-    app.run(host='127.0.0.1')
+    app.run(host="127.0.0.1")
