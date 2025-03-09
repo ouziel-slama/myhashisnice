@@ -2,8 +2,42 @@ import binascii
 import requests
 from contextlib import contextmanager
 from config import SingletonMeta, Config
+
+import apsw
+
 from nicefetcher import utils
-from mhinindexes import apsw_connect, get_shard_id
+
+
+def rowtracer(cursor, sql):
+    """Converts fetched SQL data into dict-style"""
+    return {
+        name: (bool(value) if str(field_type) == "BOOL" else value)
+        for (name, field_type), value in zip(cursor.getdescription(), sql)
+    }
+
+
+def apsw_connect(filename):
+    """Connect to SQLite database with optimal settings"""
+    db = apsw.Connection(filename)
+    cursor = db.cursor()
+    cursor.execute("PRAGMA page_size = 4096")
+    cursor.execute("PRAGMA auto_vacuum = 0")
+    cursor.execute("PRAGMA synchronous = NORMAL")
+    cursor.execute("PRAGMA journal_size_limit = 6144000")
+    cursor.execute("PRAGMA cache_size = 10000")
+    cursor.execute("PRAGMA defer_foreign_keys = ON")
+    cursor.execute("PRAGMA journal_mode = WAL")
+    cursor.execute("PRAGMA locking_mode = NORMAL")
+
+    db.setbusytimeout(5000)
+    db.setrowtrace(rowtracer)
+    cursor.close()
+    return db
+
+
+def get_shard_id(utxo_id):
+    """Determine the shard ID based on the first byte of utxo_id"""
+    return utxo_id[0] % 10
 
 
 class APSWConnectionPool(metaclass=SingletonMeta):
@@ -70,16 +104,24 @@ class ShardedConnectionPool:
 
 
 def utxo_to_utxo_id(txid, n):
+    """Convert txid:vout to utxo_id bytes"""
     txid = utils.inverse_hash(txid)
     txid = binascii.unhexlify(txid)
     return bytes(utils.pack_utxo(txid, n))
 
 
 class MhinQueries:
+    """
+    Classe pour effectuer des requêtes sur les données MHIN
+    Remarque: Cette implémentation accède directement aux bases de données
+    mais est compatible avec l'architecture où ces bases sont gérées par des processus séparés
+    """
+
     def __init__(self, db_file=None):
         base_path = Config()["BALANCES_STORE"]
         if db_file is None:
             db_file = f"{base_path}/mhin_indexes.db"
+        self.base_path = base_path
         self.pool = APSWConnectionPool(db_file)
         self.shard_pools = ShardedConnectionPool(base_path)
 
@@ -211,6 +253,7 @@ class MhinQueries:
             rows = cursor.execute("SELECT * FROM stats").fetchall()
             stats = {row["key"]: row["value"] for row in rows}
             stats["supply"] = int(stats["supply"])
+            stats["supply_check"] = int(stats["supply_check"])
             stats["utxos_count"] = int(stats["utxos_count"])
             stats["nice_hashes_count"] = int(stats["nice_hashes_count"])
             stats["max_zero"] = int(stats["max_zero"])

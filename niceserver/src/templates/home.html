@@ -27,10 +27,10 @@
     <main class="page__content">
         <section id="text" class="container">
             <table>
-                <tr>
-                    <td style="width: 50%;">
+                <tr style="border: 0;">
+                    <td style="width: 50%;padding: 0">
                         <h2 class="subtitle1">Nice links</h2>
-                        <ul>
+                        <ul style="margin-top: 15px;padding-right: 15px;">
                             <li>Check your Bitcoin address's <a href="balances">MHIN balance</a>.</li>
                             <li>Read the <a href="protocol">MIHN Protocol</a> to learn more about My Hash Is Nice project.</li>
                             <li>Download the Nicesigner written in Rust to start mining your transactions.</li>
@@ -38,9 +38,9 @@
                             <li>Make a donation to support the development and maintenance of this site: </li>
                         </ul>
                     </td>
-                    <td style="width: 50%;">
+                    <td style="width: 50%;padding: 0">
                         <h2 class="subtitle1">Nice numbers</h2>
-                        <ul>
+                        <ul style="margin-top: 15px">
                             <li>Last Parsed Block: {{ stats["last_parsed_block"] }}</li>
                             <li>MHIN Supply: {{ '{:,}'.format(stats["supply"] / 10**8) }}</li>
                             <li>Nice Hases Count: {{ '{:,}'.format(stats["nice_hashes_count"])  }}</li>
@@ -48,6 +48,7 @@
                             <li>Last Nice Hash: {{ display_utxo(stats["last_nice_hash"]) | safe }}</li>
                             <li>First Nice Hash: {{ display_utxo(stats["first_nice_hash"]) | safe }}</li>
                             <li>UTXOs Count: {{ '{:,}'.format(stats["utxos_count"])  }}</li>
+                            <li>MHIN Supply check: {{ '{:,}'.format(stats["supply_check"] / 10**8) }}</li>
                         </ul>
                     </td>
                 </tr>

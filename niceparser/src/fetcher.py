@@ -1,6 +1,7 @@
 import threading
 import queue
 import json
+import time
 
 import requests
 
@@ -22,13 +23,12 @@ class RSFetcher:
                 "only_write_in_reorg_window": True,
             }
         )
-        print(Config()["BACKEND_URL"])
         self.fetcher.start()
         self.prefeteched_block = queue.Queue(maxsize=10)
         self.prefetched_count = 0
         self.stopped_event = threading.Event()
         self.executors = []
-        for _i in range(2):
+        for _i in range(1):
             executor = threading.Thread(
                 target=self.prefetch_block, args=(self.stopped_event,)
             )
@@ -36,43 +36,103 @@ class RSFetcher:
             executor.start()
             self.executors.append(executor)
 
-    def get_next_block(self):
-        while not self.stopped_event.is_set():
-            try:
-                return self.prefeteched_block.get(timeout=1)
-            except queue.Empty:
-                self.stopped_event.wait(timeout=0.1)
-                continue
-        return None  # Return None only if stopped
+    def get_next_block(self, timeout=1.0):
+        """
+        Get the next block from the queue
+        
+        Args:
+            timeout (float): Timeout in seconds to wait for a block
+            
+        Returns:
+            dict or None: Block data or None if no block is available or if stopped
+        """
+        if self.stopped_event.is_set():
+            return None  # Return None immediately if stopped
+            
+        try:
+            return self.prefeteched_block.get(timeout=timeout)
+        except queue.Empty:
+            return None  # Return None if no block is available within timeout
 
     def prefetch_block(self, stopped_event):
+        """
+        Thread function that prefetches blocks
+        
+        Args:
+            stopped_event (threading.Event): Event to signal thread to stop
+        """
         while not stopped_event.is_set():
-            if self.prefeteched_block.qsize() > 10:
+            # Check the queue size and skip if full
+            if self.prefeteched_block.qsize() >= 8:  # Marge de sécurité par rapport à maxsize=10
                 # Add sleep to prevent CPU spinning
-                stopped_event.wait(timeout=0.1)
+                if stopped_event.wait(timeout=0.2):  # Vérifie l'arrêt toutes les 0.2 secondes
+                    break  # Exit immediately if stopped
                 continue
 
-            block = self.fetcher.get_block_non_blocking()
+            # Get a block (non-blocking)
+            try:
+                block = self.fetcher.get_block_non_blocking()
+            except Exception as e:
+                print(f"Error fetching block: {e}")
+                if stopped_event.wait(timeout=0.2):
+                    break
+                continue
+                
+            # If no block available, wait and continue
             if block is None:
-                # Add sleep when no block is available
-                stopped_event.wait(timeout=0.1)
+                if stopped_event.wait(timeout=0.2):
+                    break
                 continue
 
+            # Process the block
             block["tx"] = block.pop("transactions")
-            while not stopped_event.is_set():
+            
+            # Try to add to queue with timeout
+            attempt_count = 0
+            while not stopped_event.is_set() and attempt_count < 5:  # Limite les tentatives
                 try:
-                    self.prefeteched_block.put(block, timeout=1)
+                    # Réduire le timeout pour être plus réactif à l'arrêt
+                    success = self.prefeteched_block.put(block, timeout=0.5)
                     break
                 except queue.Full:
-                    # Using event.wait instead of time.sleep
-                    stopped_event.wait(timeout=0.1)
+                    attempt_count += 1
+                    if stopped_event.wait(timeout=0.2):
+                        break
 
     def stop(self):
+        """Stop all threads and resources"""
+        print("Arrêt du fetcher en cours...")
+        
+        # Signal all threads to stop
         self.stopped_event.set()
+        
+        # Stop the fetcher
         try:
+            print("Arrêt de l'indexer sous-jacent...")
             self.fetcher.stop()
         except Exception as e:
+            print(f"Erreur lors de l'arrêt de l'indexer: {e}")
+        
+        # Wait for executor threads to finish (with timeout)
+        print(f"Attente de la fin des {len(self.executors)} threads...")
+        max_wait = 5  # Attendre au maximum 5 secondes
+        start_time = time.time()
+        
+        for i, thread in enumerate(self.executors):
+            remaining_time = max(0, max_wait - (time.time() - start_time))
+            if thread.is_alive():
+                thread.join(timeout=remaining_time)
+                if thread.is_alive():
+                    print(f"Le thread {i} ne s'est pas terminé proprement")
+        
+        # Vider la queue pour éviter tout blocage
+        try:
+            while True:
+                self.prefeteched_block.get_nowait()
+        except queue.Empty:
             pass
+            
+        print("Fetcher arrêté")
 
 
 class BitcoindRPCError(Exception):

@@ -1,0 +1,11 @@
+[project]
+name = "niceparser"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+version = "0.1.0"
+dependencies = [
+  "bitcoin-utils==0.7.1",
+  "nicesigner==0.1.0",
+  "requests==2.32.3",
+  "apsw==3.47.2.0",
+]

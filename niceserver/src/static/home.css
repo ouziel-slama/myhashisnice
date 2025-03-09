@@ -611,7 +611,7 @@ h3.subtitle2 {
   }
   
   tbody tr:hover {
-    background-color: var(--color_background--element);
+    /*background-color: var(--color_background--element);*/
   }
   
   tfoot {
