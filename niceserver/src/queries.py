@@ -40,7 +40,7 @@ def get_shard_id(utxo_id):
     return utxo_id[0] % 10
 
 
-class APSWConnectionPool(metaclass=SingletonMeta):
+class APSWConnectionPool():
     def __init__(self, db_file):
         self.connections = []
         self.db_file = db_file
@@ -86,6 +86,7 @@ class ShardedConnectionPool:
         """Get or create a connection pool for a specific shard"""
         if shard_id not in self.pools:
             db_file = f"{self.base_path}/mhin_balances_{shard_id}.db"
+            print(f"Opening shard {shard_id} at {db_file}")
             self.pools[shard_id] = APSWConnectionPool(db_file)
         return self.pools[shard_id]
 
@@ -105,9 +106,9 @@ class ShardedConnectionPool:
 
 def utxo_to_utxo_id(txid, n):
     """Convert txid:vout to utxo_id bytes"""
-    txid = utils.inverse_hash(txid)
-    txid = binascii.unhexlify(txid)
-    return bytes(utils.pack_utxo(txid, n))
+    inversed = utils.inverse_hash(txid)
+    inversed = binascii.unhexlify(inversed)
+    return bytes(utils.pack_utxo(inversed, n))
 
 
 class MhinQueries:
@@ -164,6 +165,7 @@ class MhinQueries:
             if txid and vout is not None:
                 # Convert to utxo_id
                 utxo_id = utxo_to_utxo_id(txid, vout)
+                print("utxo_id", utxo_id)
                 shard_id = get_shard_id(utxo_id)
 
                 # Query the balance from the appropriate shard
@@ -177,8 +179,7 @@ class MhinQueries:
                     if row:
                         balance = row["balance"]
                         total_balance += balance
-
-                    utxo_details.append({"utxo": f"{txid}:{vout}", "balance": balance})
+                        utxo_details.append({"utxo": f"{utils.inverse_hash(txid)}:{vout}", "balance": balance})
 
         return {
             "address": address,

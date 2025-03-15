@@ -22,6 +22,7 @@
             <p>If your transaction txid starts with 6 or more zeros you earn MHIN. The more zeros the more you earn!</p>
             <p>Don't be cheesy, mine transactions not blocks!</p>
         </div>
+        <div class="ribbon-wrapper-yellow"><div class="ribbon-yellow">WIP</div></div>
     </header>
 
     <main class="page__content">
@@ -33,9 +34,9 @@
                         <ul style="margin-top: 15px;padding-right: 15px;">
                             <li>Check your Bitcoin address's <a href="balances">MHIN balance</a>.</li>
                             <li>Read the <a href="protocol">MIHN Protocol</a> to learn more about My Hash Is Nice project.</li>
-                            <li>Download the Nicesigner written in Rust to start mining your transactions.</li>
+                            <li>Download the <a href="https://github.com/ouziel-slama/myhashisnice/">Nicesigner</a> written in Rust to start mining your transactions.</li>
                             <li>Chat with the community of people with nice hashes in the BitcoinTalk discussion.</li>
-                            <li>Make a donation to support the development and maintenance of this site: </li>
+                            <li>Make a donation to support the development and maintenance of this site: <b>1C3uGcoSGzKVgFqyZ3kM2DBq9CYttTMAVs</b></li>
                         </ul>
                     </td>
                     <td style="width: 50%;padding: 0">
@@ -48,7 +49,6 @@
                             <li>Last Nice Hash: {{ display_utxo(stats["last_nice_hash"]) | safe }}</li>
                             <li>First Nice Hash: {{ display_utxo(stats["first_nice_hash"]) | safe }}</li>
                             <li>UTXOs Count: {{ '{:,}'.format(stats["utxos_count"])  }}</li>
-                            <li>MHIN Supply check: {{ '{:,}'.format(stats["supply_check"] / 10**8) }}</li>
                         </ul>
                     </td>
                 </tr>
@@ -75,8 +75,11 @@
             </div>
         </section>
     </main>
-
+    
     </div>  <!-- page -->
+    
     </div>  <!-- top -->
+
+
 </body>
 </html>

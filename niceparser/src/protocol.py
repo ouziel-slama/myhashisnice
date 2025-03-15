@@ -34,6 +34,8 @@ def calculate_distribution(value, output_values):
         list: List of distributed amounts
     """
     total_output = sum(output_values)
+    if total_output == 0:
+        return [0] * len(output_values)
 
     distribution = [
         int(D(value) * (D(output_value) / D(total_output)))

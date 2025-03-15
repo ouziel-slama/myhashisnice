@@ -63,7 +63,6 @@ def display_quantity(quantity):
 
 
 @app.route("/")
-@auth.login_required
 def home():
     queries = MhinQueries()
     return render_template(
@@ -77,7 +76,6 @@ def home():
 
 
 @app.route("/protocol")
-@auth.login_required
 def protocol():
     return render_template(
         "protocol.html", css_url=url_for("static", filename="home.css")
@@ -85,7 +83,6 @@ def protocol():
 
 
 @app.route("/balances")
-@auth.login_required
 def balances():
     address = request.args.get("address")
     queries = MhinQueries()
@@ -101,4 +98,5 @@ def balances():
 
 
 if __name__ == "__main__":
+    Config().set_network("mainnet")
     app.run(host="127.0.0.1")
