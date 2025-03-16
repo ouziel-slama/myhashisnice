@@ -1,27 +1,28 @@
 import json
-import datetime
 import time
-import os
 import json
-from datetime import datetime
 
 import sh
 
 from bitcoinutils.transactions import Transaction
-from bitcoinutils.keys import PrivateKey, P2wpkhAddress
+from bitcoinutils.keys import P2wpkhAddress
 from bitcoinutils.hdwallet import HDWallet
-from bitcoinutils.setup import setup, get_network
+from bitcoinutils.setup import setup
 
 from nicesigner import nicesigner
-from nicefetcher import utils
 
 setup("mainnet")
 
 DUST_SIZE = 550
 
+RPC_USER = "rpc"
+RPC_PASSWORD = "rpc"
+TARGET = 6
+TOTAL_THREADS = 32
+
 bitcoin_cli = sh.bitcoin_cli.bake(
-    "-rpcuser=rpc",
-    "-rpcpassword=rpc",
+    f"-rpcuser={RPC_USER}",
+    f"-rpcpassword={RPC_PASSWORD}",
 )
 
 
@@ -33,9 +34,9 @@ def build_nice_transaction(mnemonic, utxo_txid, utxo_vout, utxo_value, utxo_path
 
     base_path = "m/84'/0'/0'/0"
     first_thread = 0
-    num_threads = 32
-    total_threads = 32
-    target = 6  # Cherche un txid commençant par 0
+    num_threads = TOTAL_THREADS
+    total_threads = TOTAL_THREADS
+    target = TARGET
     output_value = utxo_value - 330  # vsize 110 * 3
     if output_value < DUST_SIZE:
         raise ValueError("Output value is too low")
@@ -110,13 +111,16 @@ def mint_mihn(
         counter += 1
 
 
-mnemonic = "addict weather world sense idle purity rich wagon ankle fall cheese spatial"
 
-txid = "000000e987b36fbf0aeb47b74e0794fcff07c10eed3cfd6a1c6184d55f9b7b7b"
-vout = 0
-value = 84807
+# use genwallet.py to generate mnemonic and address
+mnemonic = "addict weather world sense idle purity rich wagon ankle fall cheese spatial"
 address_path = "m/84'/0'/0'/0/1"
-batch_name = "batch4/noopreturn"
+
+txid = "" # utxo txid
+vout = 0 # utxo vout
+value = 84807 # utxo value
+
+batch_name = "mybatch"
 
 
 mint_mihn(mnemonic, txid, vout, value, address_path, batch_name)

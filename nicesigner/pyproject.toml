@@ -10,6 +10,7 @@ license = { text = "MIT" }
 version = "0.1.0"
 dependencies = [
   "bitcoin-utils==0.7.1",
+  "mnemonic==0.21",
 ]
 
 [tool.maturin]
