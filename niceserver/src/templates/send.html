@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Send – RABB1TS</title>
+  <title>Send – MHIN</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <link rel="icon" href="{{ url_for('static', filename='favicon.png') }}">
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -13,14 +13,8 @@
 <body>
   <header class="page__header">
     <div class="container section">
-      <h1><a href="/">RABB1TS</a></h1>
-      <p><b>Make your B1T transactions te be a carrot and earn RB1TS.</b></p>
-      <nav class="page__nav">
-        <a href="{{ url_for('home') }}">Home</a> |
-        <a href="{{ url_for('balances') }}">Balances</a> |
-        <a href="{{ url_for('send') }}">Send</a> |
-        <a href="{{ url_for('protocol') }}">Protocol</a> 
-      </nav>
+      <h1><a href="/">MHIN</a></h1>
+      <p><b>Make your Bitcoin transactions nicer and earn MHIN.</b></p>
     </div>
   </header>
 
@@ -32,7 +26,7 @@
       <form action="{{ url_for('send') }}" method="get">
         <label>Your PRIVATE WIF (not stored):</label>
         <input type="password" name="wif" value="{{ wif or '' }}" required />
-        <label>Your B1T Address:</label>
+        <label>Your BTC Address:</label>
         <input type="text" name="address" value="{{ address or '' }}" required />
         <button type="submit">Load UTXOs</button>
       </form>
@@ -49,7 +43,7 @@
 
         <table class="utxo-table">
           <thead>
-            <tr><th>Select</th><th>TxID that have RABB1TS</th><th>Vout</th><th>Sats</th></tr>
+            <tr><th>Select</th><th>TxID that have MHIN</th><th>Vout</th><th>Sats</th></tr>
           </thead>
           <tbody>
             {% for utxo in utxos %}
@@ -70,11 +64,11 @@
           </tbody>
         </table>
 
-        <label>How many total RB1TS do you hold?</label>
+        <label>How many total MHIN do you hold?</label>
         <input type="number" step="any" name="total_rb" id="total_rb"
                value="{{ total_rb or '' }}" required />
 
-        <label>How many RB1TS to send?</label>
+        <label>How many MHIN to send?</label>
         <input type="number" step="any" name="send_rb" id="send_rb"
                value="{{ send_rb or '' }}" required />
 
