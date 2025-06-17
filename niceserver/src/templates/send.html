@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Send – RABB1TS</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="icon" href="{{ url_for('static', filename='favicon.png') }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Recursive:wght@300..1000&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="{{ css_url }}" />
+</head>
+<body>
+  <header class="page__header">
+    <div class="container section">
+      <h1><a href="/">RABB1TS</a></h1>
+      <p><b>Make your B1T transactions te be a carrot and earn RB1TS.</b></p>
+      <nav class="page__nav">
+        <a href="{{ url_for('home') }}">Home</a> |
+        <a href="{{ url_for('balances') }}">Balances</a> |
+        <a href="{{ url_for('send') }}">Send</a> |
+        <a href="{{ url_for('protocol') }}">Protocol</a> 
+      </nav>
+    </div>
+  </header>
+
+  <main class="page__content">
+    {# STEP 1: Enter WIF & Address #}
+    {% if not utxos and not txhex and not broadcast %}
+    <section class="container">
+      <h2>Step 1: Enter Credentials</h2>
+      <form action="{{ url_for('send') }}" method="get">
+        <label>Your PRIVATE WIF (not stored):</label>
+        <input type="password" name="wif" value="{{ wif or '' }}" required />
+        <label>Your B1T Address:</label>
+        <input type="text" name="address" value="{{ address or '' }}" required />
+        <button type="submit">Load UTXOs</button>
+      </form>
+    </section>
+    {% endif %}
+
+    {# STEP 2: Show UTXOs + Amounts & Addresses #}
+    {% if utxos and not txhex and not broadcast %}
+    <section class="container">
+      <h2>Step 2: Build Transaction</h2>
+      <form action="{{ url_for('send') }}" method="post" id="send-form">
+        <input type="hidden" name="wif"     value="{{ wif }}" />
+        <input type="hidden" name="address" value="{{ address }}" />
+
+        <table class="utxo-table">
+          <thead>
+            <tr><th>Select</th><th>TxID that have RABB1TS</th><th>Vout</th><th>Sats</th></tr>
+          </thead>
+          <tbody>
+            {% for utxo in utxos %}
+            <tr>
+              <td>
+                <input
+                  type="radio"
+                  name="utxo_index"
+                  value="{{ loop.index0 }}"
+                  {% if loop.first %}checked{% endif %}
+                />
+              </td>
+              <td>{{ utxo.txid }}</td>
+              <td>{{ utxo.vout }}</td>
+              <td>{{ utxo.sats }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+
+        <label>How many total RB1TS do you hold?</label>
+        <input type="number" step="any" name="total_rb" id="total_rb"
+               value="{{ total_rb or '' }}" required />
+
+        <label>How many RB1TS to send?</label>
+        <input type="number" step="any" name="send_rb" id="send_rb"
+               value="{{ send_rb or '' }}" required />
+
+        <label>Recipient address:</label>
+        <input type="text" name="recv_addr" required />
+
+        <!-- Rest-address row, toggled by JS -->
+        <div id="rest-row">
+          <label>Rest address:</label>
+          <input type="text" name="rest_addr" />
+        </div>
+
+        <label>Change address:</label>
+        <input type="text" name="change_addr" required />
+
+        <button type="submit">Preview Transaction</button>
+      </form>
+
+      <!-- JavaScript to hide/show Rest row -->
+      <script>
+        const totalIn = document.getElementById('total_rb');
+        const sendIn  = document.getElementById('send_rb');
+        const restRow = document.getElementById('rest-row');
+        const sendForm = document.getElementById('send-form');
+
+        function toggleRest() {
+          if (totalIn.value && sendIn.value &&
+              Number(totalIn.value) === Number(sendIn.value)) {
+            restRow.style.display = 'none';
+            if (!document.querySelector('input[name=rest_addr][type=hidden]')) {
+              const h = document.createElement('input');
+              h.type  = 'hidden';
+              h.name  = 'rest_addr';
+              h.value = document.querySelector('input[name=address]').value;
+              sendForm.appendChild(h);
+            }
+          } else {
+            restRow.style.display = '';
+            const h = document.querySelector('input[name=rest_addr][type=hidden]');
+            if (h) h.remove();
+          }
+        }
+
+        totalIn.addEventListener('input', toggleRest);
+        sendIn.addEventListener('input',  toggleRest);
+        // initialize on load
+        toggleRest();
+      </script>
+    </section>
+    {% endif %}
+
+    {# STEP 3: Preview & Confirm #}
+    {% if txhex and not broadcast %}
+    <section class="container">
+      <h2>Step 3: Preview & Confirm</h2>
+      <pre class="tx-preview">{{ txhex }}</pre>
+      <div class="confirm-buttons">
+        <form action="{{ url_for('send') }}" method="post" style="display:inline">
+          <input type="hidden" name="confirm" value="yes" />
+          <input type="hidden" name="txhex"   value="{{ txhex }}" />
+          <button type="submit">Yes, Broadcast</button>
+        </form>
+        <form action="{{ url_for('send') }}" method="post" style="display:inline">
+          <input type="hidden" name="confirm" value="no" />
+          <button type="submit">No, Cancel</button>
+        </form>
+      </div>
+    </section>
+    {% endif %}
+
+    {# STEP 4: Result #}
+    {% if broadcast %}
+    <section class="container">
+      <h2>Step 4: Result</h2>
+      <p>Broadcast {{ 'succeeded' if success else 'failed' }}.</p>
+      {% if success %}
+        <p>TXID: <code>{{ txid }}</code></p>
+      {% else %}
+        <p class="error">Error: {{ error }}</p>
+      {% endif %}
+      <p><a href="{{ url_for('home') }}">Back to Home</a></p>
+    </section>
+    {% endif %}
+  </main>
+</body>
+</html>
