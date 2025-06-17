@@ -4,10 +4,10 @@ import requests
 import base58
 import requests
 # ─── CONFIG ─────────────────────────────────────────────────────────────────────
-RPC_URL      = "http://127.0.0.1:9876"
+RPC_URL      = "http://127.0.0.1:8332"
 RPC_USER     = "rpc"
 RPC_PASSWORD = "rpc"
-FEE_RATE     = 1_000_000   # sats per kB = 0.01 B1T/kB
+FEE_RATE     = 50_000   # sats per kB = 0.0005 BTC/kB
 # ────────────────────────────────────────────────────────────────────────────────
 
 def rpc(method, params=None):
@@ -24,17 +24,17 @@ def rpc(method, params=None):
 
 def list_utxos(addr: str):
     """
-    Query blockbook.b1tcore.org for both confirmed and unconfirmed UTXOs.
+    Query mempool.space for both confirmed and unconfirmed UTXOs.
     Returns a list of dicts: {txid, vout, sats}.
     """
-    # confirmed=false means “include mempool UTXOs too”
-    url = f"https://blockbook.b1tcore.org/api/v2/utxo/{addr}?confirmed=false"
+    url = f"https://mempool.space/api/address/{addr}/utxo"
     r = requests.get(url, timeout=10)
     r.raise_for_status()
-    data = r.json()  # a list of UTXO objects
+    data = r.json()  # list of {txid, vout, value, status, ...}
+
     utxos = []
     for u in data:
-        # value is a string of satoshis per Blockbook spec
+        # here `value` is already an integer number of satoshis
         sats = int(u["value"])
         utxos.append({
             "txid": u["txid"],
@@ -57,7 +57,7 @@ def build_tx(wif, inputs, outputs):
     return signed["hex"]
 
 
-def send_rb1ts(
+def send_mhin(
     wif: str,
     addr: str,
     total_rb: float,
@@ -68,7 +68,7 @@ def send_rb1ts(
     change_addr: str
 ):
     """
-    Build and sign a RB1TS transaction using the same logic as the CLI.
+    Build and sign a MHIN transaction using the same logic as the CLI.
     Returns (txhex, metadata).
     """
     utxos = list_utxos(addr)
@@ -148,7 +148,7 @@ def broadcast_tx(txhex: str) -> str:
 
 
 def interactive_main():
-    print("\n== RB1TS Sender (3 outputs with base-UTXO selection) ==")
+    print("\n== MHIN Sender (3 outputs with base-UTXO selection) ==")
     wif  = input("Your PRIVATE WIF (not stored): ").strip()
     addr = input("Your B1T address (holds sats): ").strip()
 
@@ -160,14 +160,14 @@ def interactive_main():
     for i,u in enumerate(utxos):
         print(f"  [{i}] {u['txid']}:{u['vout']} → {u['sats']} sats")
 
-    # 2) user’s RB1TS holdings & send amount
-    total_rb = float(input("How many total RB1TS tokens do you hold? ").strip())
-    send_rb  = float(input("How many RB1TS tokens to send? ").strip())
+    # 2) user’s MHIN holdings & send amount
+    total_rb = float(input("How many total MHIN tokens do you hold? ").strip())
+    send_rb  = float(input("How many MHIN tokens to send? ").strip())
     if send_rb > total_rb:
         return print("❌ cannot send more tokens than you hold")
 
-    # 3) choose base UTXO that carries RB1TS
-    idx = int(input("Select index of UTXO with your RB1TS tokens: ").strip())
+    # 3) choose base UTXO that carries MHIN
+    idx = int(input("Select index of UTXO with your MHIN tokens: ").strip())
     base = utxos[idx]
 
     # 4) derive network dust limit
