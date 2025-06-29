@@ -1,7 +1,8 @@
+use crate::mempool::MempoolClient;
 use crate::store::MhinStore;
 use crate::web::handlers::{
     balances_page, get_address_balance, get_nicehashes, get_stats, home_page, protocol_page,
-    AppState, MempoolClient,
+    AppState,
 };
 
 use actix::prelude::*;

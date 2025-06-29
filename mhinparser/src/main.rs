@@ -15,6 +15,7 @@ pub mod blockfetcher;
 pub mod blockprocessor;
 pub mod config;
 pub mod logger;
+pub mod mempool;
 pub mod parser;
 pub mod protocol;
 pub mod rpc;
