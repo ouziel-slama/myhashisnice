@@ -11,7 +11,7 @@ use bitcoin::{
     opcodes::all::OP_RETURN,
     Address, Amount, OutPoint, TxOut, Txid,
     psbt::{Psbt as BitcoinPsbt, Input as PsbtInput, Output as PsbtOutput},
-    Transaction, TxIn, TxOut as BitcoinTxOut,
+    Transaction, TxIn,
 };
 use serde_json::json;
 use std::str::FromStr;
@@ -140,7 +140,7 @@ pub async fn compose_transaction(
         
         if mhin_in >= total_mhin_needed {
             btc_out = 0u64;
-            let mhin_distribution = Vec::new();
+            let mut mhin_distribution = Vec::new();
             
             // Build outputs
             let mut outputs = Vec::new();
@@ -150,7 +150,7 @@ pub async fn compose_transaction(
                     amount: dust_amount,
                 });
                 btc_out += dust_amount;
-                mhin_distribution.push(mhin_amount);
+                mhin_distribution.push(*mhin_amount);
             }
 
             // Add change output if needed
@@ -233,15 +233,16 @@ pub async fn compose_psbt(
         tx_inputs.push(tx_in);
         
         // Create PSBT input with appropriate UTXO reference
-        let script_pubkey = Script::from_hex(&utxo_info.script_pub_key.hex)
+        let script_bytes = hex::decode(&utxo_info.script_pub_key.hex)
             .map_err(|e| ComposerError::RpcError(format!("Invalid script hex: {}", e)))?;
+        let script_pubkey = Script::from_bytes(&script_bytes);
         
         let value = Amount::from_btc(utxo_info.value)
             .map_err(|e| ComposerError::RpcError(format!("Invalid value: {}", e)))?;
             
         let utxo = TxOut {
             value,
-            script_pubkey,
+            script_pubkey: script_pubkey.into(),
         };
         
         let mut psbt_input = PsbtInput::default();
@@ -330,9 +331,13 @@ fn create_mhin_op_return(mhin_distribution: &[u64]) -> Result<TxOut, ComposerErr
     }
     
     // Create OP_RETURN script
+    use bitcoin::script::PushBytesBuf;
+    let push_bytes = PushBytesBuf::try_from(op_return_data)
+        .map_err(|e| ComposerError::CborError(format!("Failed to create push bytes: {}", e)))?;
+    
     let script = Builder::new()
         .push_opcode(OP_RETURN)
-        .push_slice(&op_return_data)
+        .push_slice(push_bytes)
         .into_script();
     
     Ok(TxOut {

@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>MY HASH IS NICE</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="description" content="" />
+    <link rel="icon" href="favicon.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Recursive:wght@300..1000&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/home.css">
+</head>
+<body>
+    <div id="top" role="document">
+    <div class="page">
+
+    <header class="page__header">
+        <div class="container section">
+            <h1><a href="/">MY HASH IS NICE</a></h1>
+            <p><b>Make your Bitcoin transactions nicer and earn MHIN.</b></p>
+        </div>
+        <div class="ribbon-wrapper-yellow"><div class="ribbon-yellow">WIP</div></div>
+    </header>
+
+    <main class="page__content">
+        <section id="text" class="container">
+            <h2 class="subtitle1">Compose MHIN Transaction</h2>
+            <form id="composeForm">
+                <div style="margin-bottom: 15px;">
+                    <label for="source">Source Address:</label><br>
+                    <input type="text" id="source" name="source" required style="width: 100%; max-width: 500px; margin-top: 5px;">
+                </div>
+
+                <div style="margin-bottom: 15px;">
+                    <label>Outputs:</label><br>
+                    <div id="outputsContainer" style="margin-top: 10px;">
+                        <div class="output-group">
+                            <div class="output-fields">
+                                <input type="text" class="address-input" placeholder="bc1..." required>
+                                <input type="number" class="amount-input" placeholder="Amount (MHIN)" step="0.00000001" min="0" required>
+                            </div>
+                            <button type="button" class="add-btn" onclick="addOutput()">+</button>
+                        </div>
+                    </div>
+                    <small style="display: block; margin-top: 5px; color: #666;">
+                        Amount in MHIN (1 MHIN = 100,000,000 satoshis)
+                    </small>
+                </div>
+
+                <div style="margin-bottom: 15px;">
+                    <label for="fee_rate">Fee Rate (sat/vbyte):</label><br>
+                    <input type="number" id="fee_rate" name="fee_rate" value="10" min="1" style="width: 100px; margin-top: 5px;">
+                </div>
+
+                <button type="submit">Compose Transaction</button>
+            </form>
+        </section>
+
+        <section id="result" class="container" style="display: none;">
+            <h2 class="subtitle2">Transaction PSBT</h2>
+            <div style="margin-bottom: 15px;">
+                <strong>Source:</strong> <span id="resultSource"></span><br>
+                <strong>Fee Rate:</strong> <span id="resultFeeRate"></span> sat/vbyte<br>
+                <strong>Outputs:</strong> <span id="resultOutputs"></span>
+            </div>
+            
+            <div style="margin-bottom: 15px;">
+                <label for="psbtHex"><strong>PSBT (Hex):</strong></label><br>
+                <textarea id="psbtHex" readonly rows="8" style="width: 100%; font-family: monospace; font-size: 12px; margin-top: 5px;"></textarea>
+                <button type="button" onclick="copyPsbt()" style="margin-top: 5px;">Copy PSBT</button>
+            </div>
+        </section>
+
+        <section id="error" class="container" style="display: none;">
+            <h2 class="subtitle2" style="color: red;">Error</h2>
+            <div id="errorMessage" style="color: red;"></div>
+        </section>
+    </main>
+
+    </div>  <!-- page -->
+    </div>  <!-- top -->
+
+    <script>
+        function addOutput() {
+            const container = document.getElementById('outputsContainer');
+            const outputGroup = document.createElement('div');
+            outputGroup.className = 'output-group';
+            
+            outputGroup.innerHTML = `
+                <div class="output-fields">
+                    <input type="text" class="address-input" placeholder="bc1..." required>
+                    <input type="number" class="amount-input" placeholder="Amount (MHIN)" step="0.00000001" min="0" required>
+                </div>
+                <button type="button" class="remove-btn" onclick="removeOutput(this)">−</button>
+            `;
+            
+            container.appendChild(outputGroup);
+        }
+        
+        function removeOutput(button) {
+            const outputGroup = button.closest('.output-group');
+            outputGroup.remove();
+        }
+        
+        function collectOutputs() {
+            const outputs = [];
+            const outputGroups = document.querySelectorAll('.output-group');
+            
+            outputGroups.forEach(group => {
+                const addressInput = group.querySelector('.address-input');
+                const amountInput = group.querySelector('.amount-input');
+                
+                if (addressInput.value && amountInput.value) {
+                    outputs.push({
+                        address: addressInput.value.trim(),
+                        amount: Math.round(parseFloat(amountInput.value) * 100000000) // Convert MHIN to satoshis
+                    });
+                }
+            });
+            
+            return outputs;
+        }
+
+        document.getElementById('composeForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const source = document.getElementById('source').value;
+            const outputs = collectOutputs();
+            const feeRate = document.getElementById('fee_rate').value;
+            
+            // Hide previous results
+            document.getElementById('result').style.display = 'none';
+            document.getElementById('error').style.display = 'none';
+            
+            try {
+                // Validate outputs
+                if (outputs.length === 0) {
+                    throw new Error('Please add at least one output');
+                }
+                
+                // Build query string
+                const params = new URLSearchParams({
+                    source: source,
+                    outputs: JSON.stringify(outputs),
+                    fee_rate: feeRate
+                });
+                
+                const response = await fetch(`/addresses/${encodeURIComponent(source)}/compose?${params}`);
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error || 'Request failed');
+                }
+                
+                // Display results
+                document.getElementById('resultSource').textContent = data.source;
+                document.getElementById('resultFeeRate').textContent = data.fee_rate;
+                document.getElementById('resultOutputs').textContent = 
+                    data.outputs.map(o => `${o.address}: ${(o.amount / 100000000).toFixed(8)} MHIN`).join(', ');
+                document.getElementById('psbtHex').value = data.psbt_hex;
+                document.getElementById('result').style.display = 'block';
+                
+            } catch (error) {
+                document.getElementById('errorMessage').textContent = error.message;
+                document.getElementById('error').style.display = 'block';
+            }
+        });
+        
+        function copyPsbt() {
+            const psbtHex = document.getElementById('psbtHex');
+            psbtHex.select();
+            psbtHex.setSelectionRange(0, 99999);
+            navigator.clipboard.writeText(psbtHex.value);
+            
+            const button = event.target;
+            const originalText = button.textContent;
+            button.textContent = 'Copied!';
+            setTimeout(() => {
+                button.textContent = originalText;
+            }, 2000);
+        }
+    </script>
+
+</body>
+</html>

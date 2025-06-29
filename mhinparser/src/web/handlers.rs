@@ -7,6 +7,8 @@ use crate::web::models::{
     AddressBalanceResponse, NiceHashResponse, PaginatedResponse, PaginationQuery,
     StatsResponse,
 };
+use crate::composer::compose_transaction;
+use crate::web::models::{ComposeQuery, ComposeResponse, MhinOutputData};
 
 use actix_web::{web, HttpResponse, Result};
 use bitcoin::Address;
@@ -327,6 +329,74 @@ pub async fn get_address_balance(
         total_balance,
         utxo_count,
         utxos: utxos_list,
+    };
+
+    Ok(HttpResponse::Ok().json(response))
+}
+
+// Wallet page
+pub async fn wallet_page(app_state: web::Data<AppState>) -> Result<HttpResponse, ApiError> {
+    let context = Context::new();
+
+    let html = app_state
+        .tera
+        .render("wallet.html", &context)
+        .map_err(|e| ApiError::Template(e.to_string()))?;
+
+    Ok(HttpResponse::Ok().content_type("text/html").body(html))
+}
+
+// Compose transaction endpoint
+pub async fn compose_transaction_endpoint(
+    app_state: web::Data<AppState>,
+    query: web::Query<ComposeQuery>,
+) -> Result<HttpResponse, ApiError> {
+    // Validate source address
+    let _source_addr = Address::from_str(&query.source).map_err(|_| {
+        ApiError::InvalidAddress(format!("Invalid source address: {}", query.source))
+    })?;
+
+    // Parse outputs from JSON string
+    let outputs: Vec<MhinOutputData> = if let Some(outputs_json) = &query.outputs {
+        serde_json::from_str(outputs_json).map_err(|e| {
+            ApiError::InvalidPagination(format!("Invalid outputs JSON: {}", e))
+        })?
+    } else {
+        return Err(ApiError::InvalidPagination(
+            "outputs parameter is required".to_string(),
+        ));
+    };
+
+    // Validate output addresses and convert to HashMap
+    let mut mhin_outputs = HashMap::new();
+    for output in &outputs {
+        let _addr = Address::from_str(&output.address).map_err(|_| {
+            ApiError::InvalidAddress(format!("Invalid output address: {}", output.address))
+        })?;
+        mhin_outputs.insert(output.address.clone(), output.amount);
+    }
+
+    let fee_rate = query.fee_rate.unwrap_or(10); // Default 10 sat/vbyte
+
+    // Call compose_transaction
+    let psbt = compose_transaction(
+        &app_state.mhin_store.config,
+        app_state.mhin_store.clone(),
+        &query.source,
+        &mhin_outputs,
+        fee_rate,
+    )
+    .await
+    .map_err(|e| ApiError::Internal(format!("Failed to compose transaction: {}", e)))?;
+
+    // Convert PSBT to hex
+    let psbt_hex = psbt.to_hex();
+
+    let response = ComposeResponse {
+        psbt_hex,
+        source: query.source.clone(),
+        outputs: outputs.clone(),
+        fee_rate,
     };
 
     Ok(HttpResponse::Ok().json(response))

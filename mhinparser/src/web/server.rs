@@ -1,8 +1,8 @@
 use crate::mempool::MempoolClient;
 use crate::store::MhinStore;
 use crate::web::handlers::{
-    balances_page, get_address_balance, get_nicehashes, get_stats, home_page, protocol_page,
-    AppState,
+    balances_page, compose_transaction_endpoint, get_address_balance, get_nicehashes, get_stats, 
+    home_page, protocol_page, wallet_page, AppState,
 };
 
 use actix::prelude::*;
@@ -112,12 +112,17 @@ impl Handler<StartWebServer> for WebServerActor {
                         .route("/", web::get().to(home_page))
                         .route("/balances", web::get().to(balances_page))
                         .route("/protocol", web::get().to(protocol_page))
+                        .route("/wallet", web::get().to(wallet_page)) 
                         // API endpoints
                         .route("/nicehashes", web::get().to(get_nicehashes))
                         .route("/stats", web::get().to(get_stats))
                         .route(
                             "/addresses/{address}/balance",
                             web::get().to(get_address_balance),
+                        )
+                        .route(
+                            "/addresses/{address}/compose",
+                            web::get().to(compose_transaction_endpoint),
                         )
                 })
                 .bind(format!("{}:{}", host, port))

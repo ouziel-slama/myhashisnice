@@ -79,3 +79,25 @@ pub struct MempoolUtxo {
 pub struct StatsResponse {
     pub stats: HashMap<String, String>,
 }
+
+#[derive(Deserialize)]
+pub struct ComposeQuery {
+    pub source: String,
+    pub fee_rate: Option<u64>,
+    // JSON encoded: [{"address": "...", "amount": 123}, ...]
+    pub outputs: Option<String>,
+}
+
+#[derive(Deserialize, Serialize, Clone)]
+pub struct MhinOutputData {
+    pub address: String,
+    pub amount: u64, // MHIN amount in satoshis (1 MHIN = 100_000_000 sats)
+}
+
+#[derive(Serialize)]
+pub struct ComposeResponse {
+    pub psbt_hex: String,
+    pub source: String,
+    pub outputs: Vec<MhinOutputData>,
+    pub fee_rate: u64,
+}
