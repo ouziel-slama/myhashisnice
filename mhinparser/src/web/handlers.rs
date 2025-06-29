@@ -1,9 +1,10 @@
 use crate::block::generate_utxo_id;
-use crate::store::MhinStore;
 use crate::store::utils::inverse_hash;
+use crate::store::MhinStore;
 use crate::web::errors::{ApiError, ApiResult};
 use crate::web::models::{
-    AddressBalanceResponse, NiceHashResponse, PaginatedResponse, PaginationQuery, StatsResponse, MempoolUtxo,
+    AddressBalanceResponse, MempoolUtxo, NiceHashResponse, PaginatedResponse, PaginationQuery,
+    StatsResponse,
 };
 
 use actix_web::{web, HttpResponse, Result};
@@ -11,10 +12,10 @@ use bitcoin::Address;
 use hex::FromHex;
 use reqwest::Client;
 use serde_json::json;
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use std::collections::HashMap;
 use tera::{Context, Tera};
 
 pub struct AppState {
@@ -43,7 +44,7 @@ impl MempoolClient {
 
     pub async fn get_address_utxos(&self, address: &str) -> ApiResult<Vec<MempoolUtxo>> {
         let url = format!("{}/address/{}/utxo", self.base_url, address);
-        
+
         let response = self
             .client
             .get(&url)
@@ -72,10 +73,10 @@ fn bold_zero(value: &str) -> String {
     if !value.starts_with('0') {
         return value.to_string();
     }
-    
+
     let mut bold_value = String::from("<b>");
     let mut closed = false;
-    
+
     for char in value.chars() {
         if char != '0' && !closed {
             bold_value.push_str("</b>");
@@ -85,7 +86,7 @@ fn bold_zero(value: &str) -> String {
             bold_value.push(char);
         }
     }
-    
+
     bold_value
 }
 
@@ -94,7 +95,7 @@ fn display_utxo(txid: &str, full: bool) -> String {
     let bolded = if full {
         bold_zero(&txid)
     } else {
-        let short_txid = format!("{}...{}", &txid[..12], &txid[txid.len()-12..]);
+        let short_txid = format!("{}...{}", &txid[..12], &txid[txid.len() - 12..]);
         bold_zero(&short_txid)
     };
     format!(
@@ -105,15 +106,15 @@ fn display_utxo(txid: &str, full: bool) -> String {
 
 fn display_quantity(quantity: u64) -> String {
     let value = quantity as f64 / 100_000_000.0; // Convert satoshis to MHIN
-    
+
     // Format with 8 decimal places
     let formatted = format!("{:.8}", value);
-    
+
     // Split the integer and decimal parts
     let parts: Vec<&str> = formatted.split('.').collect();
     let integer_part = parts[0];
     let decimal_part = parts.get(1).map_or("", |v| v);
-    
+
     // Add thousand separators to integer part
     let formatted_integer = if integer_part == "0" {
         "0".to_string()
@@ -130,17 +131,17 @@ fn display_quantity(quantity: u64) -> String {
             .rev()
             .collect()
     };
-    
+
     // Remove trailing zeros from decimal part
     let trimmed_decimal = decimal_part.trim_end_matches('0');
-    
+
     // Combine parts
     let final_number = if trimmed_decimal.is_empty() {
         formatted_integer
     } else {
         format!("{}.{}", formatted_integer, trimmed_decimal)
     };
-    
+
     format!("{} MHIN", final_number)
 }
 
@@ -216,7 +217,7 @@ pub async fn home_page(app_state: web::Data<AppState>) -> Result<HttpResponse, A
 
 pub async fn protocol_page(app_state: web::Data<AppState>) -> Result<HttpResponse, ApiError> {
     let context = Context::new();
-    
+
     let html = app_state
         .tera
         .render("protocol.html", &context)
@@ -230,18 +231,19 @@ pub async fn balances_page(
     query: web::Query<HashMap<String, String>>,
 ) -> Result<HttpResponse, ApiError> {
     let mut context = Context::new();
-    
+
     if let Some(address_str) = query.get("address") {
         // Validate Bitcoin address
-        let _address = Address::from_str(address_str)
-            .map_err(|_| ApiError::InvalidAddress(format!("Invalid Bitcoin address: {}", address_str)))?;
+        let _address = Address::from_str(address_str).map_err(|_| {
+            ApiError::InvalidAddress(format!("Invalid Bitcoin address: {}", address_str))
+        })?;
 
         // Get UTXOs from mempool.space
         let utxos = app_state
             .mempool_client
             .get_address_utxos(address_str)
             .await?;
-        
+
         let mut total_balance = 0u64;
         let mut utxos_list: Vec<(String, String)> = Vec::new();
 
@@ -300,12 +302,14 @@ pub async fn get_nicehashes(
 
     let nicehashes: Vec<NiceHashResponse> = nicehash_data
         .into_iter()
-        .map(|(block_height, txid, zero_count, reward)| NiceHashResponse {
-            block_height,
-            txid,
-            zero_count,
-            reward,
-        })
+        .map(
+            |(block_height, txid, zero_count, reward)| NiceHashResponse {
+                block_height,
+                txid,
+                zero_count,
+                reward,
+            },
+        )
         .collect();
 
     let response = PaginatedResponse::new(nicehashes, page, limit, total);
@@ -325,15 +329,16 @@ pub async fn get_address_balance(
     let address_str = path.into_inner();
 
     // Validate Bitcoin address
-    let _address = Address::from_str(&address_str)
-        .map_err(|_| ApiError::InvalidAddress(format!("Invalid Bitcoin address: {}", address_str)))?;
+    let _address = Address::from_str(&address_str).map_err(|_| {
+        ApiError::InvalidAddress(format!("Invalid Bitcoin address: {}", address_str))
+    })?;
 
     // Get UTXOs from mempool.space using existing client
     let utxos = app_state
         .mempool_client
         .get_address_utxos(&address_str)
         .await?;
-    
+
     let mut total_balance = 0u64;
     let mut utxo_count = 0;
     let mut utxos_list: HashMap<String, u64> = HashMap::new();
@@ -358,11 +363,7 @@ pub async fn get_address_balance(
         if let Some(balance) = app_state.mhin_store.get_balance(utxo_id) {
             total_balance += balance;
             utxo_count += 1;
-            utxos_list.insert(format!(
-                "{}:{}", 
-                &utxo.txid, 
-                utxo.vout
-            ), balance);
+            utxos_list.insert(format!("{}:{}", &utxo.txid, utxo.vout), balance);
         }
     }
 

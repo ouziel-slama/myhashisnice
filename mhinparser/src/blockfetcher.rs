@@ -108,7 +108,7 @@ impl BlockFetcherActor {
                             actor.next_height += step;
                             actor.consecutive_failures = 0; // Reset failure counter on success
                             debug!("Fetcher {} successfully inserted block {} (quota: {}/{})", 
-                                   actor.fetcher_id, height, 
+                                   actor.fetcher_id, height,
                                    blocks.get_fetcher_count(actor.fetcher_id),
                                    blocks.get_quota_per_fetcher());
                         } else {
@@ -117,19 +117,19 @@ impl BlockFetcherActor {
                                    blocks.get_fetcher_count(actor.fetcher_id),
                                    blocks.get_quota_per_fetcher());
                         }
-                        
+
                         // Reset processing flag on success
                         actor.processing = false;
                     },
                     Err(_error_msg) => {
                         actor.consecutive_failures += 1;
-                        
+
                         // Calculate backoff delay: 1s, 2s, 3s, ..., max 10s
                         let delay_seconds = std::cmp::min(actor.consecutive_failures, 10);
-                        
+
                         debug!("Fetcher {} block fetch failed, retrying in {}s (attempt {})", 
                               actor.fetcher_id, delay_seconds, actor.consecutive_failures);
-                        
+
                         // Schedule retry and reset processing flag after delay
                         ctx.run_later(Duration::from_secs(delay_seconds), |actor, _ctx| {
                             actor.processing = false;

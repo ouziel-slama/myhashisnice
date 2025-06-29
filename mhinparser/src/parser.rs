@@ -98,7 +98,7 @@ impl Handler<StartParser> for ParserSystemActor {
 
         // Create MhinStore (this performs sanity check automatically)
         let mhin_store = Arc::new(MhinStore::new(self.config.clone(), parser_address.clone()));
-        
+
         // NEW: Store the reference
         self.mhin_store = Some(mhin_store.clone());
 

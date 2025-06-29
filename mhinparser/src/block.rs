@@ -2,12 +2,15 @@ use crate::config::MhinConfig;
 use crate::protocol::{calculate_reward, get_zero_count};
 
 use bitcoin::consensus::encode::serialize_hex;
+use bitcoin::opcodes::all::OP_RETURN;
+use bitcoin::script::{Instruction, Script};
 use bitcoin::Block;
 use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::Xxh3;
 
 use dashmap::DashMap;
 use log::debug;
+use std::io::Cursor;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub type UtxoId = [u8; 8];
@@ -24,6 +27,7 @@ pub struct MhinTransaction {
     pub outputs: Vec<MhinOutput>,
     pub zero_count: u64,
     pub reward: u64,
+    pub op_return_distribution: Vec<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,7 +45,7 @@ pub struct MhinBlock {
     pub transactions: Vec<MhinTransaction>,
     pub max_zero_count: u64,
     pub nice_hashes: Vec<NiceHash>,
-    pub fetcher_id: u64, // NEW: Track which fetcher created this block
+    pub fetcher_id: u64,
 }
 
 pub struct Pop;
@@ -58,6 +62,38 @@ pub struct MhinMovement {
 }
 
 pub type MhinMovements = Vec<MhinMovement>;
+
+pub fn parse_op_return(script_pubkey: &[u8]) -> Vec<u64> {
+    let script = Script::from_bytes(script_pubkey);
+
+    // Pattern match on script instructions
+    if let [Ok(Instruction::Op(OP_RETURN)), Ok(Instruction::PushBytes(pb))] =
+        script.instructions().collect::<Vec<_>>().as_slice()
+    {
+        let data = pb.as_bytes();
+
+        // Check that data starts with "MHIN" (4 bytes)
+        if data.len() < 4 || &data[0..4] != b"MHIN" {
+            return Vec::new();
+        }
+
+        // CBOR data starts after "MHIN"
+        let cbor_data = &data[4..];
+
+        if cbor_data.is_empty() {
+            return Vec::new();
+        }
+
+        // Decode with ciborium
+        let mut cursor = Cursor::new(cbor_data);
+        match ciborium::from_reader::<Vec<u64>, _>(&mut cursor) {
+            Ok(integers) => integers,
+            Err(_) => Vec::new(),
+        }
+    } else {
+        Vec::new()
+    }
+}
 
 /// Implementation of the From trait to convert from a Bitcoin Block to our MhinBlock
 impl From<(&Block, u64, &MhinConfig, u64)> for MhinBlock {
@@ -100,6 +136,15 @@ impl From<(&Block, u64, &MhinConfig, u64)> for MhinBlock {
                     })
                     .collect();
 
+                let mut op_return_distribution = Vec::new();
+                let op_return = tx
+                    .output
+                    .iter()
+                    .find(|output| output.script_pubkey.is_op_return());
+                if let Some(op_return) = op_return {
+                    op_return_distribution = parse_op_return(op_return.script_pubkey.as_ref());
+                }
+
                 let zero_count = get_zero_count(&txid_bytes.as_ref());
 
                 if zero_count >= config.min_zero_count {
@@ -119,6 +164,7 @@ impl From<(&Block, u64, &MhinConfig, u64)> for MhinBlock {
                     outputs,
                     zero_count,
                     reward: 0,
+                    op_return_distribution,
                 }
             })
             .collect();

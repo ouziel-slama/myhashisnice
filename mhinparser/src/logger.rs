@@ -1,7 +1,7 @@
 // logger.rs
+use log::{Log, Metadata, Record};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
-use log::{Log, Metadata, Record};
 
 /// Global state to track if logs have been emitted since last stats display
 static HAS_LOGS_SINCE_MARK: AtomicBool = AtomicBool::new(false);
@@ -28,7 +28,7 @@ impl Log for SmartLogger {
         if self.enabled(record.metadata()) {
             // Mark that a log has been emitted
             HAS_LOGS_SINCE_MARK.store(true, Ordering::Relaxed);
-            
+
             // Delegate to env_logger
             if let Some(logger_mutex) = ENV_LOGGER.get() {
                 if let Ok(logger) = logger_mutex.lock() {
@@ -52,16 +52,17 @@ pub fn init() -> Result<(), Box<dyn std::error::Error>> {
     // Create and store the env_logger instance
     let env_logger = env_logger::Builder::from_default_env().build();
     let level_filter = env_logger.filter();
-    
-    ENV_LOGGER.set(Mutex::new(env_logger))
+
+    ENV_LOGGER
+        .set(Mutex::new(env_logger))
         .map_err(|_| "Logger already initialized")?;
-    
+
     // Set our custom logger
     log::set_boxed_logger(Box::new(SmartLogger))?;
-    
+
     // Apply the level filter that env_logger determined
     log::set_max_level(level_filter);
-    
+
     Ok(())
 }
 

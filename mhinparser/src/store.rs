@@ -231,7 +231,7 @@ impl MhinStore {
     /// Check if it's time to create a UTXO snapshot (every 30 minutes AND at least 100 blocks processed)
     fn should_create_snapshot(&self, current_block_height: u64) -> bool {
         const SNAPSHOT_INTERVAL: Duration = Duration::from_secs(30 * 60); // 30 minutes
-        //const SNAPSHOT_INTERVAL: Duration = Duration::from_secs(5 * 60);
+                                                                          //const SNAPSHOT_INTERVAL: Duration = Duration::from_secs(5 * 60);
         const MIN_BLOCKS_BETWEEN_SNAPSHOTS: u64 = 100; // Minimum 100 blocks
 
         let last_snapshot_time = self.last_snapshot_time.read().unwrap();
@@ -272,21 +272,25 @@ impl MhinStore {
             let rpc_url = self.config.rpc_url.clone();
             let handle = std::thread::spawn(move || {
                 let rt = tokio::runtime::Runtime::new().unwrap();
-                rt.block_on(async {
-                    make_rpc_call(&rpc_url, "getblockcount", json!([])).await
-                })
+                rt.block_on(async { make_rpc_call(&rpc_url, "getblockcount", json!([])).await })
             });
 
             let blockchain_tip = handle.join().unwrap();
-            
+
             if let Some(tip_value) = blockchain_tip {
                 if let Some(tip_height) = tip_value.as_u64() {
                     if block_height == tip_height {
-                        info!("At blockchain tip (block {}), switching to persistent mode", block_height);
+                        info!(
+                            "At blockchain tip (block {}), switching to persistent mode",
+                            block_height
+                        );
                         if let Err(e) = self.utxo_balances.switch_to_persistent_mode() {
                             panic!("Failed to switch to persistent mode: {}", e);
                         }
-                        info!("Successfully switched to persistent mode at block {}", block_height);
+                        info!(
+                            "Successfully switched to persistent mode at block {}",
+                            block_height
+                        );
                         return;
                     }
                 }
@@ -627,17 +631,20 @@ impl MhinStore {
             .map(|height| height as u64)
             .unwrap_or(0);
 
-        stats.insert(
-            "block_height".to_string(),
-            block_height.to_string(),
-        );
+        stats.insert("block_height".to_string(), block_height.to_string());
 
         stats
     }
 
     /// Get paginated nice hashes for web API
-    pub fn get_nicehashes_paginated(&self, limit: u32, offset: u32) -> Result<(Vec<(u64, String, u64, u64)>, u64), String> {
-        let sqlite_conn = self.sqlite_conn.lock()
+    pub fn get_nicehashes_paginated(
+        &self,
+        limit: u32,
+        offset: u32,
+    ) -> Result<(Vec<(u64, String, u64, u64)>, u64), String> {
+        let sqlite_conn = self
+            .sqlite_conn
+            .lock()
             .map_err(|e| format!("Failed to acquire lock: {}", e))?;
 
         // Get total count
@@ -660,19 +667,17 @@ impl MhinStore {
         let nicehash_iter = stmt
             .query_map(params![limit as i64, offset as i64], |row| {
                 Ok((
-                    row.get::<_, i64>(0)? as u64,  // block_height
-                    row.get::<_, String>(1)?,      // tx_id
-                    row.get::<_, i64>(2)? as u64,  // zero_count
-                    row.get::<_, i64>(3)? as u64,  // reward
+                    row.get::<_, i64>(0)? as u64, // block_height
+                    row.get::<_, String>(1)?,     // tx_id
+                    row.get::<_, i64>(2)? as u64, // zero_count
+                    row.get::<_, i64>(3)? as u64, // reward
                 ))
             })
             .map_err(|e| format!("Failed to execute query: {}", e))?;
 
         let mut nicehashes = Vec::new();
         for nicehash in nicehash_iter {
-            nicehashes.push(
-                nicehash.map_err(|e| format!("Failed to read row: {}", e))?,
-            );
+            nicehashes.push(nicehash.map_err(|e| format!("Failed to read row: {}", e))?);
         }
 
         Ok((nicehashes, total))

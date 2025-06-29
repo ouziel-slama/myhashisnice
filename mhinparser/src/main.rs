@@ -22,8 +22,11 @@ pub mod store;
 pub mod web;
 
 use config::MhinConfig;
-use parser::{create_parser_system, StartParser, StopParser, GetMhinStore};
-use web::{WebServerActor, server::{StartWebServer, StopWebServer}};
+use parser::{create_parser_system, GetMhinStore, StartParser, StopParser};
+use web::{
+    server::{StartWebServer, StopWebServer},
+    WebServerActor,
+};
 
 /// Parse command line arguments using clap
 fn parse_args() -> ArgMatches {
@@ -162,7 +165,7 @@ fn main() -> std::io::Result<()> {
         .get_one::<String>("web_host")
         .cloned()
         .unwrap_or_else(|| "127.0.0.1".to_string());
-    
+
     let web_port = matches
         .get_one::<String>("web_port")
         .and_then(|s| s.parse::<u16>().ok())
@@ -214,11 +217,14 @@ fn main() -> std::io::Result<()> {
             Ok(Some(mhin_store)) => {
                 info!("Got MhinStore reference, starting web server...");
                 let web_server = WebServerActor::new(mhin_store).start();
-                
-                match web_server.send(StartWebServer { 
-                    host: web_host.clone(), 
-                    port: web_port 
-                }).await {
+
+                match web_server
+                    .send(StartWebServer {
+                        host: web_host.clone(),
+                        port: web_port,
+                    })
+                    .await
+                {
                     Ok(_) => {
                         info!("Web server started on {}:{}", web_host, web_port);
                         Some(web_server)

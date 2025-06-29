@@ -2,7 +2,7 @@ use crate::block::UtxoId;
 use crate::store::constants::{ADD_MARKER, POP_MARKER};
 use crate::store::utils::read_varint;
 
-use log::{info, debug, warn};
+use log::{debug, info, warn};
 use rocksdb::{Options, WriteBatch, DB};
 use rusqlite::Connection;
 use std::collections::HashMap;
@@ -96,7 +96,7 @@ impl UtxoBalances {
         let mut opts = Options::default();
         opts.create_if_missing(true);
         opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
-        
+
         if for_bulk_load {
             // Bulk load optimizations
             opts.set_write_buffer_size(512 * 1024 * 1024); // 512MB for bulk load
@@ -128,19 +128,22 @@ impl UtxoBalances {
         block_opts.set_bloom_filter(10.0, false);
         opts.set_block_based_table_factory(&block_opts);
 
-        let db = DB::open(&opts, db_path)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        let db = DB::open(&opts, db_path).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
         Ok(Arc::new(db))
     }
 
     pub fn new(capacity: usize, data_dir: &PathBuf) -> Self {
         let db_path = data_dir.join("utxo_balances_rockdb");
-        
+
         // Check if RocksDB already exists
-        if db_path.exists() && std::fs::metadata(&db_path).map(|m| m.is_dir()).unwrap_or(false) {
+        if db_path.exists()
+            && std::fs::metadata(&db_path)
+                .map(|m| m.is_dir())
+                .unwrap_or(false)
+        {
             info!("Existing RocksDB found, initializing in persistent mode");
-            
+
             match Self::open_rocksdb(&db_path, false) {
                 Ok(db) => {
                     info!("Successfully opened existing RocksDB");
@@ -150,7 +153,10 @@ impl UtxoBalances {
                     };
                 }
                 Err(e) => {
-                    warn!("Failed to open existing RocksDB ({}), falling back to HashMap mode", e);
+                    warn!(
+                        "Failed to open existing RocksDB ({}), falling back to HashMap mode",
+                        e
+                    );
                 }
             }
         } else {
@@ -313,9 +319,12 @@ impl UtxoBalances {
                     }
                 }
             }
-            
+
             if deleted_count > 0 {
-                info!("Successfully cleaned up {} old snapshot files", deleted_count);
+                info!(
+                    "Successfully cleaned up {} old snapshot files",
+                    deleted_count
+                );
             }
         }
     }
@@ -605,7 +614,10 @@ impl UtxoBalances {
                 if last_height > 0 {
                     let mut last_height_guard = last_block_height.write().unwrap();
                     *last_height_guard = last_height;
-                    info!("Restored last block height to {} from SQLite (RocksDB mode)", last_height);
+                    info!(
+                        "Restored last block height to {} from SQLite (RocksDB mode)",
+                        last_height
+                    );
                 }
             }
         }

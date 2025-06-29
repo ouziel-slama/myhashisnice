@@ -79,7 +79,45 @@
             <h3 class="subtitle2">Moving MHIN</h3>
             <p>
                 When UTXOs with attached MHINs are spent, the MHINs are distributed to the new UTXOs in the transaction.
-                Distribution is done in exactly the same way as rewards.
+                There are two methods for distributing MHINs when moving them:
+            </p>
+            
+            <h4 style="margin-top: 1.5em; margin-bottom: 0.5em; font-weight: bold;">Method 1: Automatic Proportional Distribution</h4>
+            <p>
+                By default, distribution is done in exactly the same way as rewards - proportionally based on the Bitcoin values of the output UTXOs, excluding the last output if there are multiple outputs.
+            </p>
+            
+            <h4 style="margin-top: 1.5em; margin-bottom: 0.5em; font-weight: bold;">Method 2: Custom Distribution via OP_RETURN</h4>
+            <p>
+                You can now specify exactly how MHINs should be distributed by including an OP_RETURN output in your transaction with custom distribution data. This allows for precise control over MHIN transfers.
+            </p>
+            
+            <h5 style="margin-top: 1em; margin-bottom: 0.5em; font-weight: bold;">OP_RETURN Format:</h5>
+            <ul>
+                <li>The OP_RETURN script must contain data that starts with the 4-byte prefix "MHIN"</li>
+                <li>Following the prefix, the data must be encoded in CBOR format</li>
+                <li>The CBOR data should represent a vector of unsigned 64-bit integers (Vec&lt;u64&gt;)</li>
+                <li>Each integer specifies how many MHINs to send to the corresponding output UTXO</li>
+            </ul>
+            
+            <h5 style="margin-top: 1em; margin-bottom: 0.5em; font-weight: bold;">Distribution Rules:</h5>
+            <ul>
+                <li>The number of values in the distribution array is automatically adjusted to match the number of non-OP_RETURN outputs</li>
+                <li>If the array is too long, extra values are removed</li>
+                <li>If the array is too short, zeros are appended</li>
+                <li>The total sum of the distribution values cannot exceed the total MHINs being spent</li>
+                <li>If the sum is less than the total, the difference is added to the first output</li>
+                <li>If the sum exceeds the total, the transaction falls back to proportional distribution</li>
+                <li>Newly mined MHIN rewards are always distributed proportionally and then combined with the custom distribution</li>
+            </ul>
+            
+            <h5 style="margin-top: 1em; margin-bottom: 0.5em; font-weight: bold;">Example:</h5>
+            <p>
+                If you have 1000 MHINs to distribute across 3 outputs and want to send 600 to the first, 300 to the second, and 100 to the third, your OP_RETURN would contain "MHIN" followed by the CBOR encoding of [600, 300, 100].
+            </p>
+            
+            <p style="margin-top: 1em;">
+                <b>Note:</b> If no valid OP_RETURN distribution is found, the transaction automatically uses the proportional distribution method.
             </p>
         </section>
     </main>

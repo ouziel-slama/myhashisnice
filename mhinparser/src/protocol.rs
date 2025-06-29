@@ -63,29 +63,84 @@ pub fn calculate_reward(zero_count: u64, max_zero_count: u64, config: &MhinConfi
     (max_reward / divisor) as u64
 }
 
+// Helper function to get transaction distribution based on op_return or calculated proportionally
+pub fn get_transaction_distribution(
+    transaction_reward: u64,
+    total_in: u64,
+    output_values: &[u64],
+    op_return_distribution: &[u64],
+) -> Vec<u64> {
+    let reward_distribution = calculate_distribution(transaction_reward, output_values);
+
+    let send_distribution = if !op_return_distribution.is_empty() {
+        // Validate and correct op_return_distribution
+        let mut corrected_distribution = op_return_distribution.to_vec();
+
+        // 1. Handle length mismatch
+        match corrected_distribution.len().cmp(&output_values.len()) {
+            std::cmp::Ordering::Greater => {
+                // Remove additional elements to match the length
+                corrected_distribution.truncate(output_values.len());
+            }
+            std::cmp::Ordering::Less => {
+                // Add zeros to match the length
+                corrected_distribution.resize(output_values.len(), 0);
+            }
+            std::cmp::Ordering::Equal => {
+                // Length is already correct, no action needed
+            }
+        }
+
+        // 2. Handle sum validation and correction
+        let sum_distribution: u64 = corrected_distribution.iter().sum();
+
+        if sum_distribution <= total_in {
+            // Complete the first element with the difference if sum is less than total_in
+            if sum_distribution < total_in && !corrected_distribution.is_empty() {
+                corrected_distribution[0] += total_in - sum_distribution;
+            }
+            // Use the corrected distribution
+            corrected_distribution
+        } else {
+            // Sum is greater than total_in, fallback to proportional calculation
+            calculate_distribution(total_in, output_values)
+        }
+    } else {
+        calculate_distribution(total_in, output_values)
+    };
+
+    let distribution = reward_distribution
+        .iter()
+        .zip(send_distribution.iter())
+        .map(|(a, b)| a + b)
+        .collect();
+
+    distribution
+}
+
 // Helper function to calculate distribution proportionally
-fn calculate_distribution(value: u64, output_values: &[u64]) -> Vec<u64> {
-    let total_output: u64 = output_values.iter().sum();
+pub fn calculate_distribution(mhin_value: u64, btc_output_values: &[u64]) -> Vec<u64> {
+    let total_output: u64 = btc_output_values.iter().sum();
 
     if total_output == 0 {
-        return vec![0; output_values.len()];
+        return vec![0; btc_output_values.len()];
     }
 
     // Calculate proportional distribution
-    let mut distribution = Vec::with_capacity(output_values.len());
+    let mut distribution = Vec::with_capacity(btc_output_values.len());
     let mut total_distributed = 0u64;
 
-    for &output_value in output_values {
+    for &btc_output_value in btc_output_values {
         // Use f64 for the division to avoid rounding issues
-        let proportion = output_value as f64 / total_output as f64;
-        let amount = (value as f64 * proportion).floor() as u64;
+        let proportion = btc_output_value as f64 / total_output as f64;
+        let amount = (mhin_value as f64 * proportion).floor() as u64;
         distribution.push(amount);
         total_distributed += amount;
     }
 
     // Distribute any remaining value to the first output
-    if total_distributed < value && !distribution.is_empty() {
-        distribution[0] += value - total_distributed;
+    if total_distributed < mhin_value && !distribution.is_empty() {
+        distribution[0] += mhin_value - total_distributed;
     }
 
     distribution
@@ -145,8 +200,13 @@ pub fn process_block(block: &MhinBlock, mhin_store: &MhinStore) {
             // Get output values for distribution calculation
             let output_values: Vec<u64> = valid_outputs.iter().map(|out| out.value).collect();
 
-            // Calculate distribution of values
-            let distributions = calculate_distribution(total_to_distribute, &output_values);
+            // Get transaction distribution
+            let distributions = get_transaction_distribution(
+                transaction_reward,
+                total_in,
+                &output_values,
+                &tx.op_return_distribution,
+            );
 
             // Apply distributions to outputs
             for (i, output) in valid_outputs.iter().enumerate() {

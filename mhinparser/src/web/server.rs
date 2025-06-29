@@ -1,13 +1,13 @@
 use crate::store::MhinStore;
 use crate::web::handlers::{
-    get_address_balance, get_nicehashes, get_stats, home_page, protocol_page, balances_page, 
-    AppState, MempoolClient
+    balances_page, get_address_balance, get_nicehashes, get_stats, home_page, protocol_page,
+    AppState, MempoolClient,
 };
 
 use actix::prelude::*;
 use actix_cors::Cors;
-use actix_web::{middleware::Logger, web, App, HttpServer};
 use actix_files::Files;
+use actix_web::{middleware::Logger, web, App, HttpServer};
 use log::info;
 use std::sync::Arc;
 use tera::Tera;
@@ -33,7 +33,12 @@ impl StopWebServer {
 
     pub fn with_confirmation() -> (Self, oneshot::Receiver<()>) {
         let (tx, rx) = oneshot::channel();
-        (Self { confirm_tx: Some(tx) }, rx)
+        (
+            Self {
+                confirm_tx: Some(tx),
+            },
+            rx,
+        )
     }
 }
 
@@ -76,9 +81,7 @@ impl Handler<StartWebServer> for WebServerActor {
                 info!("Starting web server on {}:{}", host, port);
 
                 // Initialize Tera template engine with absolute path
-                let templates_path = std::env::current_dir()
-                    .unwrap()
-                    .join("templates/**/*");
+                let templates_path = std::env::current_dir().unwrap().join("templates/**/*");
                 let tera = Tera::new(templates_path.to_str().unwrap())
                     .expect("Failed to initialize Tera template engine");
 
@@ -90,9 +93,7 @@ impl Handler<StartWebServer> for WebServerActor {
                 });
 
                 // Get absolute path for static files
-                let static_path = std::env::current_dir()
-                    .unwrap()
-                    .join("static");
+                let static_path = std::env::current_dir().unwrap().join("static");
 
                 let server = HttpServer::new(move || {
                     App::new()
@@ -113,16 +114,19 @@ impl Handler<StartWebServer> for WebServerActor {
                         // API endpoints
                         .route("/nicehashes", web::get().to(get_nicehashes))
                         .route("/stats", web::get().to(get_stats))
-                        .route("/addresses/{address}/balance", web::get().to(get_address_balance))
+                        .route(
+                            "/addresses/{address}/balance",
+                            web::get().to(get_address_balance),
+                        )
                 })
                 .bind(format!("{}:{}", host, port))
                 .expect("Failed to bind web server")
                 .run();
 
                 let handle = server.handle();
-                
+
                 tokio::spawn(server);
-                
+
                 (handle,)
             }
             .into_actor(self)

@@ -11,18 +11,18 @@ impl PaginationQuery {
     pub fn validate(&self) -> Result<(u32, u32), String> {
         let page = self.page.unwrap_or(1);
         let limit = self.limit.unwrap_or(20);
-        
+
         if page == 0 {
             return Err("Page must be greater than 0".to_string());
         }
-        
+
         if limit == 0 || limit > 1000 {
             return Err("Limit must be between 1 and 1000".to_string());
         }
-        
+
         Ok((page, limit))
     }
-    
+
     pub fn offset(&self) -> Result<u32, String> {
         let (page, limit) = self.validate()?;
         Ok((page - 1) * limit)
@@ -41,7 +41,7 @@ pub struct PaginatedResponse<T> {
 impl<T> PaginatedResponse<T> {
     pub fn new(data: Vec<T>, page: u32, limit: u32, total: u64) -> Self {
         let has_next = (page * limit) < total as u32;
-        
+
         Self {
             data,
             page,
